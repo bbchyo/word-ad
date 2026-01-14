@@ -100,6 +100,13 @@
         
         <!-- Resources -->
         <Resources>
+            <!-- Images -->
+            <bt:Images>
+                <bt:Image id="Icon.16x16" DefaultValue="https://localhost:3000/assets/icon-16.png"/>
+                <bt:Image id="Icon.32x32" DefaultValue="https://localhost:3000/assets/icon-32.png"/>
+                <bt:Image id="Icon.80x80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
+            </bt:Images>
+
             <!-- URLs -->
             <bt:Urls>
                 <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/index.html"/>
@@ -115,14 +122,6 @@
             <bt:LongStrings>
                 <bt:String id="TaskpaneButton.Tooltip" DefaultValue="EBYÜ Tez Yazım Kılavuzu'na göre belgenizi kontrol edin."/>
             </bt:LongStrings>
-            
-            <!-- Images -->
-            <bt:Images>
-                <bt:Image id="Icon.16x16" DefaultValue="https://localhost:3000/assets/icon-16.png"/>
-                <bt:Image id="Icon.32x32" DefaultValue="https://localhost:3000/assets/icon-32.png"/>
-                <bt:Image id="Icon.80x80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
-            </bt:Images>
-            
         </Resources>
         
     </VersionOverrides>
