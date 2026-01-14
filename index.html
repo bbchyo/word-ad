@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EBYÜ Tez Format Doğrulayıcı</title>
+    
+    <!-- Office.js CDN -->
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="taskpane.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header Section -->
+        <header class="header">
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="16" cy="16" r="15" stroke="currentColor" stroke-width="2"/>
+                    <path d="M10 16L14 20L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="header-text">
+                <h1>EBYÜ Tez Doğrulayıcı</h1>
+                <p class="subtitle">Erzincan Binali Yıldırım Üniversitesi</p>
+            </div>
+        </header>
+
+        <!-- Scan Button -->
+        <button id="scanBtn" class="scan-button">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="M21 21l-4.35-4.35"/>
+            </svg>
+            <span>DÖKÜMAN TARA</span>
+        </button>
+
+        <!-- Quick Fix All Section -->
+        <div id="quickFixSection" class="quick-fix-section hidden">
+            <button id="fixAllFontsBtn" class="fix-all-button">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                </svg>
+                Tüm Yazı Tiplerini Düzelt (Times New Roman)
+            </button>
+            <button id="fixAllMarginsBtn" class="fix-all-button">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    <line x1="9" y1="3" x2="9" y2="21"/>
+                </svg>
+                Tüm Kenar Boşluklarını Düzelt (3 cm)
+            </button>
+            <button id="fixAllSpacingBtn" class="fix-all-button">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="21" y1="10" x2="3" y2="10"/>
+                    <line x1="21" y1="6" x2="3" y2="6"/>
+                    <line x1="21" y1="14" x2="3" y2="14"/>
+                    <line x1="21" y1="18" x2="3" y2="18"/>
+                </svg>
+                Tüm Satır Aralığını Düzelt (1.5 satır)
+            </button>
+        </div>
+
+        <!-- Progress Indicator -->
+        <div id="progressSection" class="progress-section hidden">
+            <div class="progress-bar">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+            <p id="progressText" class="progress-text">Taranıyor...</p>
+        </div>
+
+        <!-- Summary Stats -->
+        <div id="summarySection" class="summary-section hidden">
+            <div class="stat-card error">
+                <span id="errorCount" class="stat-number">0</span>
+                <span class="stat-label">Hata</span>
+            </div>
+            <div class="stat-card warning">
+                <span id="warningCount" class="stat-number">0</span>
+                <span class="stat-label">Uyarı</span>
+            </div>
+            <div class="stat-card success">
+                <span id="successCount" class="stat-number">0</span>
+                <span class="stat-label">Başarılı</span>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="results-section">
+            <!-- Filter Tabs -->
+            <div id="filterTabs" class="filter-tabs hidden">
+                <button class="filter-tab active" data-filter="all">Tümü</button>
+                <button class="filter-tab" data-filter="error">Hatalar</button>
+                <button class="filter-tab" data-filter="warning">Uyarılar</button>
+                <button class="filter-tab" data-filter="success">Başarılı</button>
+            </div>
+
+            <!-- Results List -->
+            <div id="resultsList" class="results-list">
+                <div class="empty-state">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    <p>Belgeyi taramak için yukarıdaki butona tıklayın</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>EBYÜ 2022 Tez Yazım Kılavuzu'na göre</p>
+        </footer>
+    </div>
+
+    <!-- Custom Scripts -->
+    <script src="taskpane.js"></script>
+</body>
+</html>
