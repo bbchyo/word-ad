@@ -223,12 +223,17 @@ async function scanDocument() {
             await checkFonts(context, paragraphs);
             await context.sync();
 
-            // Step 3: Check Paragraph Formatting (60%)
+            // Step 3: Check Headings (50%)
+            updateProgress(40, "Başlıklar kontrol ediliyor...");
+            await checkHeadings(context, paragraphs);
+            await context.sync();
+
+            // Step 4: Check Paragraph Formatting (60%)
             updateProgress(50, "Paragraf formatları kontrol ediliyor...");
             await checkParagraphFormatting(context, paragraphs);
             await context.sync();
 
-            // Step 4: Check Line Spacing (80%)
+            // Step 5: Check Line Spacing (80%)
             updateProgress(70, "Satır aralıkları kontrol ediliyor...");
             await checkLineSpacing(context, paragraphs);
             await context.sync();
@@ -585,6 +590,96 @@ function detectHeading(text, font) {
     }
 
     return false;
+}
+
+/**
+ * Check heading formatting
+ * EBYÜ Rules:
+ * - Chapter headings: 14pt, bold, centered, all caps
+ * - Section headings (1.1, 1.2): 12pt, bold, left-aligned
+ * - 6nk spacing before and after headings
+ */
+async function checkHeadings(context, paragraphs) {
+    logStep('HEADING', 'Başlık kontrolü başladı');
+
+    let headingCount = 0;
+    let boldErrors = 0;
+    let sizeErrors = 0;
+    let alignmentErrors = 0;
+    const headingDetails = [];
+
+    // Load required properties
+    for (let i = 0; i < paragraphs.items.length; i++) {
+        paragraphs.items[i].load("text, alignment");
+        paragraphs.items[i].font.load("size, bold, allCaps");
+    }
+    await context.sync();
+
+    for (let i = 0; i < paragraphs.items.length; i++) {
+        const para = paragraphs.items[i];
+        const text = para.text || '';
+        const font = para.font;
+
+        if (text.trim() === '') continue;
+
+        // Check if this is a heading
+        if (!detectHeading(text, font)) continue;
+
+        headingCount++;
+        const trimmed = text.trim();
+
+        // Determine heading level
+        const isChapterHeading = /^(BİRİNCİ|İKİNCİ|ÜÇÜNCÜ|DÖRDÜNCÜ|BEŞİNCİ|ALTINCI|YEDİNCİ|SEKİZİNCİ|DOKUZUNCU|ONUNCU)\s*BÖLÜM/i.test(trimmed) ||
+            /^(GİRİŞ|SONUÇ|KAYNAKÇA|ÖZET|ABSTRACT)$/i.test(trimmed) ||
+            /^BÖLÜM\s*\d+/i.test(trimmed);
+
+        // Check bold - all headings must be bold
+        if (!font.bold) {
+            boldErrors++;
+            if (headingDetails.length < 3) {
+                headingDetails.push({ text: trimmed.substring(0, 40), issue: 'bold' });
+            }
+        }
+
+        // Check font size for chapter headings (14pt)
+        if (isChapterHeading) {
+            if (font.size && Math.abs(font.size - 14) > 0.5) {
+                sizeErrors++;
+            }
+            // Chapter headings should be centered
+            if (para.alignment !== Word.Alignment.centered) {
+                alignmentErrors++;
+            }
+        }
+    }
+
+    logStep('HEADING', `Kontrol tamamlandı`, { headings: headingCount, boldErrors, sizeErrors, alignmentErrors });
+
+    // Report results
+    if (boldErrors > 0) {
+        addResult('error', 'Başlık Kalınlık Hatası',
+            `${boldErrors} başlık koyu (bold) değil. Tüm başlıklar koyu yazılmalıdır.`,
+            headingDetails.map(h => `"${h.text}..."`).join(', ') || null,
+            { type: 'headingBold' });
+    }
+
+    if (alignmentErrors > 0) {
+        addResult('warning', 'Başlık Hizalama',
+            `${alignmentErrors} bölüm başlığı ortalanmamış. Ana bölüm başlıkları ortalı olmalıdır.`,
+            null, { type: 'headingAlignment' });
+    }
+
+    if (sizeErrors > 0) {
+        addResult('warning', 'Başlık Boyutu',
+            `${sizeErrors} başlıkta yazı boyutu uygun değil. Bölüm başlıkları 14pt olmalıdır.`,
+            null, { type: 'headingSize' });
+    }
+
+    if (headingCount > 0 && boldErrors === 0 && sizeErrors === 0 && alignmentErrors === 0) {
+        addResult('success', 'Başlık Kontrolü', `${headingCount} başlık kontrol edildi. Tümü kurallara uygun.`);
+    } else if (headingCount === 0) {
+        addResult('warning', 'Başlık Kontrolü', 'Belgede standart başlık formatı tespit edilemedi.');
+    }
 }
 
 /**
