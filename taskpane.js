@@ -162,11 +162,6 @@ function initializeUI() {
     // Scan button
     document.getElementById('scanBtn').addEventListener('click', scanDocument);
 
-    // Quick fix buttons
-    document.getElementById('fixAllFontsBtn').addEventListener('click', fixAllFonts);
-    document.getElementById('fixAllMarginsBtn').addEventListener('click', fixAllMargins);
-    document.getElementById('fixAllSpacingBtn').addEventListener('click', fixAllSpacing);
-
     // Filter tabs
     document.querySelectorAll('.filter-tab').forEach(tab => {
         tab.addEventListener('click', (e) => {
@@ -174,6 +169,8 @@ function initializeUI() {
             setActiveFilter(filter);
         });
     });
+
+    logStep('INIT', 'UI initialized');
 }
 
 // ============================================
@@ -405,71 +402,126 @@ async function checkMargins(context, sections) {
 }
 
 /**
- * Check font settings (BATCH OPTIMIZED)
- * EBYÜ Rule: Times New Roman, 12pt for body text
+ * Check font settings (BATCH OPTIMIZED + SECTION FILTERING)
+ * EBYÜ Rule: Times New Roman, 12pt for body text, 14pt for headings
  * Performance: Single sync call for all paragraphs
  */
 async function checkFonts(context, paragraphs) {
+    logStep('FONT', 'Yazı tipi kontrolü başladı');
+
     let nonTNRCount = 0;
     let wrongSizeCount = 0;
     let checkedCount = 0;
-    const fontErrors = []; // Store first 3 errors for display
+    let excludedCount = 0;
+    let headingCount = 0;
+    const fontErrors = []; // Store first 5 errors for display
 
     // BATCH LOAD: Load all paragraph properties in ONE sync call
     for (let i = 0; i < paragraphs.items.length; i++) {
         const para = paragraphs.items[i];
         para.load("text");
-        para.font.load("name, size, bold");
+        para.font.load("name, size, bold, allCaps");
     }
 
     // Single sync for all paragraphs
     await context.sync();
 
+    logStep('FONT', `${paragraphs.items.length} paragraf yüklendi`);
+
     // Now analyze all paragraphs (no more sync calls needed)
     for (let i = 0; i < paragraphs.items.length; i++) {
         const para = paragraphs.items[i];
         const font = para.font;
+        const text = para.text || '';
 
         // Skip empty paragraphs
-        if (!para.text || para.text.trim() === '') continue;
+        if (text.trim() === '') continue;
+
+        // Skip excluded sections (cover, bibliography, appendix, TOC)
+        if (shouldExcludeParagraph(text)) {
+            excludedCount++;
+            continue;
+        }
 
         checkedCount++;
 
-        // Check font name
+        // Detect if this is a heading
+        const isHeading = detectHeading(text, font);
+        if (isHeading) {
+            headingCount++;
+            // Headings should be 14pt, bold, Times New Roman
+            if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_HEADING1) > 0.5) {
+                // Only report if significantly wrong
+                if (Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_HEADING1) > 2) {
+                    if (fontErrors.length < 5) {
+                        fontErrors.push({
+                            index: i,
+                            type: 'heading_size',
+                            fontName: font.name,
+                            fontSize: font.size,
+                            text: text.substring(0, 40)
+                        });
+                    }
+                }
+            }
+            continue; // Skip body text checks for headings
+        }
+
+        // Check font name for body text
         if (font.name && font.name !== EBYÜ_RULES.FONT_NAME) {
             nonTNRCount++;
-            if (fontErrors.length < 3) {
+            if (fontErrors.length < 5) {
                 fontErrors.push({
                     index: i,
+                    type: 'font',
                     fontName: font.name,
-                    text: para.text.substring(0, 50)
+                    text: text.substring(0, 40)
                 });
             }
         }
 
-        // Check font size (only for non-heading paragraphs)
-        const expectedSize = font.bold ? EBYÜ_RULES.FONT_SIZE_HEADING1 : EBYÜ_RULES.FONT_SIZE_BODY;
-        if (font.size && Math.abs(font.size - expectedSize) > 0.5) {
-            // Skip if it might be a heading (bold + 14pt)
-            if (!(font.bold && Math.abs(font.size - 14) < 0.5)) {
+        // Check font size for body text (should be 12pt)
+        if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_BODY) > 0.5) {
+            // Allow 10pt (footnotes), 11pt (tables), 12pt (body), 14pt (headings)
+            const allowedSizes = [10, 11, 12, 14, 16];
+            const isAllowed = allowedSizes.some(s => Math.abs(font.size - s) < 0.5);
+            if (!isAllowed) {
                 wrongSizeCount++;
             }
         }
     }
 
-    // Display first 3 font errors
+    logStep('FONT', `Kontrol tamamlandı`, {
+        checked: checkedCount,
+        excluded: excludedCount,
+        headings: headingCount,
+        fontErrors: nonTNRCount,
+        sizeErrors: wrongSizeCount
+    });
+
+    // Display font errors with examples
     for (const err of fontErrors) {
-        addResult(
-            'error',
-            'Yazı Tipi Hatası',
-            `"${err.fontName}" yerine "Times New Roman" kullanılmalıdır.`,
-            `Paragraf ${err.index + 1}: "${err.text}..."`,
-            { type: 'font', paragraphIndex: err.index }
-        );
+        if (err.type === 'font') {
+            addResult(
+                'error',
+                'Yazı Tipi Hatası',
+                `"${err.fontName}" yerine "Times New Roman" kullanılmalıdır.`,
+                `Paragraf ${err.index + 1}: "${err.text}..."`,
+                { type: 'font', paragraphIndex: err.index }
+            );
+        } else if (err.type === 'heading_size') {
+            addResult(
+                'warning',
+                'Başlık Boyutu',
+                `Başlık ${err.fontSize}pt yerine 14pt olmalıdır.`,
+                `"${err.text}..."`,
+                { type: 'headingSize', paragraphIndex: err.index }
+            );
+        }
     }
 
     // Summary for font issues
-    if (nonTNRCount > 3) {
+    if (nonTNRCount > 5) {
         addResult(
             'warning',
             'Çoklu Yazı Tipi Hatası',
@@ -483,8 +535,8 @@ async function checkFonts(context, paragraphs) {
         addResult(
             'warning',
             'Yazı Boyutu Uyarısı',
-            `${wrongSizeCount} paragrafta standart dışı yazı boyutu tespit edildi. (Standart: 12pt, Başlık: 14pt)`,
-            null,
+            `${wrongSizeCount} paragrafta standart dışı yazı boyutu tespit edildi.`,
+            `İzin verilen: 10pt (dipnot), 11pt (tablo), 12pt (metin), 14pt (başlık)`,
             { type: 'fontSize' }
         );
     }
@@ -493,23 +545,65 @@ async function checkFonts(context, paragraphs) {
         addResult(
             'success',
             'Yazı Tipi Kontrolü',
-            `Tüm paragraflar (${checkedCount} adet) Times New Roman kuralına uygun.`
+            `${checkedCount} paragraf kontrol edildi. Tümü kurallara uygun. (${excludedCount} paragraf hariç tutuldu)`
         );
     }
 }
 
 /**
- * Check paragraph formatting (BATCH OPTIMIZED)
- * EBYÜ Rule: Justified alignment, 1.25cm first line indent
- * Performance: Single sync call for all paragraphs
+ * Detect if a paragraph is a heading
+ */
+function detectHeading(text, font) {
+    if (!text || text.trim().length === 0) return false;
+
+    const trimmed = text.trim();
+
+    // Chapter headings: "BİRİNCİ BÖLÜM", "İKİNCİ BÖLÜM" etc., or numbered like "1.", "2."
+    const chapterPatterns = [
+        /^(BİRİNCİ|İKİNCİ|ÜÇÜNCÜ|DÖRDÜNCÜ|BEŞİNCİ|ALTINCI|YEDİNCİ|SEKİZİNCİ|DOKUZUNCU|ONUNCU)\s*BÖLÜM/i,
+        /^(GİRİŞ|SONUÇ|KAYNAKÇA|ÖZET|ABSTRACT|İÇİNDEKİLER)$/i,
+        /^BÖLÜM\s*\d+/i
+    ];
+
+    for (const pattern of chapterPatterns) {
+        if (pattern.test(trimmed)) return true;
+    }
+
+    // Section headings: numbered like "1.1.", "2.3.1." etc.
+    if (/^\d+\.\d+\.?\s+\S/.test(trimmed)) {
+        // This is a numbered heading if it's short and bold
+        if (trimmed.length < 200 && font.bold) return true;
+    }
+
+    // All caps + bold + short = likely a heading
+    if (font.bold && font.allCaps && trimmed.length < 100) return true;
+
+    // Bold + short + starts with capital = likely a heading
+    if (font.bold && trimmed.length < 100 && /^[A-ZÇĞİÖŞÜ]/.test(trimmed)) {
+        // Check if it looks like a heading (not a sentence)
+        if (!trimmed.includes('.') || trimmed.split('.').length <= 2) return true;
+    }
+
+    return false;
+}
+
+/**
+ * Check paragraph formatting (BATCH OPTIMIZED + SECTION FILTERING)
+ * EBYÜ Rule: Justified alignment, 1.25cm first line indent for body text
+ * Headings can be centered, so they're excluded from justify check
  */
 async function checkParagraphFormatting(context, paragraphs) {
+    logStep('PARA', 'Paragraf formatı kontrolü başladı');
+
     let alignmentErrors = 0;
     let indentErrors = 0;
+    let checkedCount = 0;
+    let excludedCount = 0;
 
     // BATCH LOAD: Load all paragraph properties in ONE sync call
     for (let i = 0; i < paragraphs.items.length; i++) {
         paragraphs.items[i].load("text, alignment, firstLineIndent");
+        paragraphs.items[i].font.load("bold, allCaps");
     }
 
     // Single sync for all paragraphs
@@ -518,35 +612,64 @@ async function checkParagraphFormatting(context, paragraphs) {
     // Now analyze all paragraphs (no more sync calls needed)
     for (let i = 0; i < paragraphs.items.length; i++) {
         const para = paragraphs.items[i];
+        const text = para.text || '';
+        const font = para.font;
 
         // Skip empty paragraphs
-        if (!para.text || para.text.trim() === '') continue;
+        if (text.trim() === '') continue;
 
-        // Skip short paragraphs (likely headings)
-        if (para.text.length < 100) continue;
+        // Skip excluded sections (cover, bibliography, appendix, TOC)
+        if (shouldExcludeParagraph(text)) {
+            excludedCount++;
+            continue;
+        }
 
-        // Check alignment
+        // Skip headings - they may be centered
+        if (detectHeading(text, font)) {
+            excludedCount++;
+            continue;
+        }
+
+        // Skip very short paragraphs (likely captions, labels)
+        if (text.length < 50) {
+            excludedCount++;
+            continue;
+        }
+
+        checkedCount++;
+
+        // Check alignment - body text should be justified
         if (para.alignment !== Word.Alignment.justified) {
             alignmentErrors++;
         }
 
-        // Check first line indent
+        // Check first line indent (only for body paragraphs)
         const expectedIndent = EBYÜ_RULES.FIRST_LINE_INDENT_POINTS;
         if (Math.abs(para.firstLineIndent - expectedIndent) > EBYÜ_RULES.INDENT_TOLERANCE) {
-            indentErrors++;
+            // Allow 0 indent (block quotes, lists) and expected indent
+            if (para.firstLineIndent !== 0) {
+                indentErrors++;
+            }
         }
     }
+
+    logStep('PARA', `Kontrol tamamlandı`, {
+        checked: checkedCount,
+        excluded: excludedCount,
+        alignmentErrors,
+        indentErrors
+    });
 
     if (alignmentErrors > 0) {
         addResult(
             'error',
             'Hizalama Hatası',
-            `${alignmentErrors} paragraf iki yana yaslanmamış (Justify). Tüm metin paragrafları iki yana yaslanmalıdır.`,
-            null,
+            `${alignmentErrors} paragraf iki yana yaslanmamış (Justify).`,
+            `Kontrol edilen: ${checkedCount} paragraf (${excludedCount} hariç tutuldu)`,
             { type: 'alignment' }
         );
     } else {
-        addResult('success', 'Paragraf Hizalama', 'Tüm paragraflar doğru hizalanmış (İki Yana Yaslı).');
+        addResult('success', 'Paragraf Hizalama', `${checkedCount} paragraf kontrol edildi. Tümü iki yana yaslı.`);
     }
 
     if (indentErrors > 0) {
@@ -554,23 +677,28 @@ async function checkParagraphFormatting(context, paragraphs) {
             'warning',
             'Girinti Uyarısı',
             `${indentErrors} paragrafta ilk satır girintisi 1.25 cm değil.`,
-            null,
+            `Not: Bazı öğeler (alıntı, liste) girinti olmadan da olabilir.`,
             { type: 'indent' }
         );
     }
 }
 
 /**
- * Check line spacing (BATCH OPTIMIZED)
+ * Check line spacing (BATCH OPTIMIZED + SECTION FILTERING)
  * EBYÜ Rule: 1.5 line spacing for body text
- * Performance: Single sync call for all paragraphs
+ * Tables, footnotes, and captions use single spacing
  */
 async function checkLineSpacing(context, paragraphs) {
+    logStep('SPACING', 'Satır aralığı kontrolü başladı');
+
     let spacingErrors = 0;
+    let checkedCount = 0;
+    let excludedCount = 0;
 
     // BATCH LOAD: Load all paragraph properties in ONE sync call
     for (let i = 0; i < paragraphs.items.length; i++) {
         paragraphs.items[i].load("text, lineSpacing, lineUnitAfter, lineUnitBefore");
+        paragraphs.items[i].font.load("bold, allCaps, size");
     }
 
     // Single sync for all paragraphs
@@ -579,30 +707,67 @@ async function checkLineSpacing(context, paragraphs) {
     // Now analyze all paragraphs (no more sync calls needed)
     for (let i = 0; i < paragraphs.items.length; i++) {
         const para = paragraphs.items[i];
+        const text = para.text || '';
+        const font = para.font;
 
         // Skip empty paragraphs
-        if (!para.text || para.text.trim() === '') continue;
+        if (text.trim() === '') continue;
 
-        // Skip short paragraphs (likely headings)
-        if (para.text.length < 100) continue;
+        // Skip excluded sections (cover, bibliography, appendix, TOC)
+        if (shouldExcludeParagraph(text)) {
+            excludedCount++;
+            continue;
+        }
 
-        // Check line spacing (1.5 = approx 18 points for 12pt font, or lineSpacing value of 1.5)
-        // Word uses different units, so we check for common 1.5 line spacing value
-        if (para.lineSpacing && para.lineSpacing !== 18 && para.lineSpacing !== 1.5) {
-            spacingErrors++;
+        // Skip headings - they may have different spacing
+        if (detectHeading(text, font)) {
+            excludedCount++;
+            continue;
+        }
+
+        // Skip short paragraphs (likely captions, labels, table content)
+        if (text.length < 50) {
+            excludedCount++;
+            continue;
+        }
+
+        // Skip if font size is not 12pt (likely table content at 11pt or footnotes at 10pt)
+        if (font.size && (font.size < 11.5 || font.size > 12.5)) {
+            excludedCount++;
+            continue;
+        }
+
+        checkedCount++;
+
+        // Check line spacing for body text
+        // 1.5 line spacing for 12pt font = approximately 18 points
+        // Allow some tolerance (17-19 points)
+        if (para.lineSpacing) {
+            const spacing = para.lineSpacing;
+            // Valid 1.5 spacing values: 18 (points), or values between 17-20
+            const isValid15 = (spacing >= 17 && spacing <= 20) || spacing === 1.5;
+            if (!isValid15) {
+                spacingErrors++;
+            }
         }
     }
+
+    logStep('SPACING', `Kontrol tamamlandı`, {
+        checked: checkedCount,
+        excluded: excludedCount,
+        errors: spacingErrors
+    });
 
     if (spacingErrors > 0) {
         addResult(
             'error',
             'Satır Aralığı Hatası',
-            `${spacingErrors} paragrafta satır aralığı 1.5 satır değil. Tez metinlerinde 1.5 satır aralığı kullanılmalıdır.`,
-            null,
+            `${spacingErrors} paragrafta satır aralığı 1.5 satır değil.`,
+            `Kontrol edilen: ${checkedCount} paragraf (${excludedCount} hariç tutuldu - tablo, dipnot, başlık vb.)`,
             { type: 'lineSpacing' }
         );
     } else {
-        addResult('success', 'Satır Aralığı', 'Satır aralıkları kontrol edildi.');
+        addResult('success', 'Satır Aralığı', `${checkedCount} paragraf kontrol edildi. Tümü 1.5 satır aralığında.`);
     }
 }
 
