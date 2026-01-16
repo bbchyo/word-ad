@@ -248,10 +248,14 @@ async function scanDocument() {
             await checkImages(context);
             await context.sync();
 
-            // Step 6: Check Tables (100%)
-            updateProgress(90, "Tablolar kontrol ediliyor...");
+            // Step 6: Check Tables (90%)
+            updateProgress(85, "Tablolar kontrol ediliyor...");
             await checkTables(context);
             await context.sync();
+
+            // Step 7: Add manual check reminders (95%)
+            updateProgress(95, "Ek kontroller ekleniyor...");
+            addManualCheckReminders();
 
             updateProgress(100, "Tarama tamamlandı!");
         });
@@ -656,36 +660,53 @@ async function checkFonts(context, paragraphs) {
 
 /**
  * Detect if a paragraph is a heading
+ * FIXED: Requires minimum 5 characters and stricter bold requirement
  */
 function detectHeading(text, font) {
-    if (!text || text.trim().length === 0) return false;
+    if (!text) return false;
 
     const trimmed = text.trim();
 
-    // Chapter headings: "BİRİNCİ BÖLÜM", "İKİNCİ BÖLÜM" etc., or numbered like "1.", "2."
+    // MINIMUM 5 characters to be a heading (avoid false positives from empty/short text)
+    if (trimmed.length < 5) return false;
+
+    // Skip if it's just whitespace or line breaks
+    if (/^[\s\r\n]+$/.test(text)) return false;
+
+    // Chapter headings: "BİRİNCİ BÖLÜM", "İKİNCİ BÖLÜM" etc. - these MUST be bold
     const chapterPatterns = [
         /^(BİRİNCİ|İKİNCİ|ÜÇÜNCÜ|DÖRDÜNCÜ|BEŞİNCİ|ALTINCI|YEDİNCİ|SEKİZİNCİ|DOKUZUNCU|ONUNCU)\s*BÖLÜM/i,
-        /^(GİRİŞ|SONUÇ|KAYNAKÇA|ÖZET|ABSTRACT|İÇİNDEKİLER)$/i,
-        /^BÖLÜM\s*\d+/i
+        /^(GİRİŞ|SONUÇ|KAYNAKÇA|ÖZET|ABSTRACT|İÇİNDEKİLER|TABLOLAR|ŞEKİLLER|KISALTMALAR|SİMGELER)$/i,
+        /^BÖLÜM\s*\d+/i,
+        /^ÖN\s*SÖZ$/i,
+        /^TEŞEKKÜR$/i
     ];
 
     for (const pattern of chapterPatterns) {
-        if (pattern.test(trimmed)) return true;
+        if (pattern.test(trimmed)) {
+            // Chapter headings must be bold
+            return font.bold === true;
+        }
     }
 
-    // Section headings: numbered like "1.1.", "2.3.1." etc.
+    // Section headings: numbered like "1.1.", "2.3.1." etc. - MUST be bold
     if (/^\d+\.\d+\.?\s+\S/.test(trimmed)) {
-        // This is a numbered heading if it's short and bold
-        if (trimmed.length < 200 && font.bold) return true;
+        return font.bold === true && trimmed.length < 200;
     }
 
-    // All caps + bold + short = likely a heading
-    if (font.bold && font.allCaps && trimmed.length < 100) return true;
+    // Single number heading like "1. Giriş", "2. Yöntem" - MUST be bold
+    if (/^\d+\.\s+[A-ZÇĞİÖŞÜa-zçğıöşü]/.test(trimmed)) {
+        return font.bold === true && trimmed.length < 150;
+    }
 
-    // Bold + short + starts with capital = likely a heading
-    if (font.bold && trimmed.length < 100 && /^[A-ZÇĞİÖŞÜ]/.test(trimmed)) {
-        // Check if it looks like a heading (not a sentence)
-        if (!trimmed.includes('.') || trimmed.split('.').length <= 2) return true;
+    // Letter heading like "A. Başlık", "B. Alt Başlık" - MUST be bold
+    if (/^[A-Z]\.\s+\S/.test(trimmed)) {
+        return font.bold === true && trimmed.length < 150;
+    }
+
+    // All caps + bold + reasonably short = likely a heading
+    if (font.bold === true && font.allCaps === true && trimmed.length >= 5 && trimmed.length < 80) {
+        return true;
     }
 
     return false;
@@ -1095,6 +1116,52 @@ async function checkTables(context) {
             `Tablolar kontrol edilirken bir sorun oluştu: ${error.message}`
         );
     }
+}
+
+/**
+ * Add reminders for checks that cannot be automated via API
+ * These require manual verification by the user
+ */
+function addManualCheckReminders() {
+    logStep('MANUAL', 'Manuel kontrol uyarıları ekleniyor');
+
+    // Footnote reminder (API cannot access footnote content reliably)
+    addResult(
+        'warning',
+        'Dipnot Kontrolü (Manuel)',
+        'Dipnotların 10pt, Times New Roman, tek satır aralığı ve iki yana yaslı olduğunu kontrol edin.',
+        'Dipnotlar: Ekle → Dipnot → Format ayarları',
+        { type: 'manualFootnote' }
+    );
+
+    // Page number reminder (API cannot access headers/footers reliably on Mac)
+    addResult(
+        'warning',
+        'Sayfa Numarası Kontrolü (Manuel)',
+        'Sayfa numaralarının alt ortada, doğru formatta (Roma/Arap) olduğunu kontrol edin.',
+        'Ön kısım: Roma (i, ii, iii...), Ana metin: Arap (1, 2, 3...)',
+        { type: 'manualPageNumber' }
+    );
+
+    // TOC/Lists reminder
+    addResult(
+        'warning',
+        'İçindekiler/Listeler (Manuel)',
+        'İçindekiler, Tablolar Listesi ve Şekiller Listesinin güncel olduğunu kontrol edin.',
+        'Sağ tıklayın → "Alanı Güncelle" veya F9 tuşuna basın',
+        { type: 'manualTOC' }
+    );
+
+    // Figure/Table caption reminder
+    addResult(
+        'warning',
+        'Tablo/Şekil Başlıkları (Manuel)',
+        'Tablo başlıkları tablonun ÜSTünde, Şekil başlıkları şeklin ALTında olmalıdır.',
+        'Format: "Tablo 1. Açıklama" veya "Şekil 1. Açıklama"',
+        { type: 'manualCaptions' }
+    );
+
+    logStep('MANUAL', 'Uyarılar eklendi');
 }
 
 // ============================================
