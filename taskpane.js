@@ -123,7 +123,13 @@ function shouldExcludeParagraph(text) {
 
     const trimmedText = text.trim();
 
-    // Check all exclusion patterns
+    // 1. TOC DOTS Check: If paragraph has many dots (....) and ends with a number, it's a TOC line
+    // This catches "Giriş ........................ 1"
+    if (/\.{4,}/.test(trimmedText) && /\d+$/.test(trimmedText)) {
+        return true;
+    }
+
+    // 2. Check all explicit exclusion patterns
     for (const pattern of EXCLUDED_SECTIONS.COVER_PATTERNS) {
         if (pattern.test(trimmedText)) return true;
     }
@@ -135,6 +141,29 @@ function shouldExcludeParagraph(text) {
     }
     for (const pattern of EXCLUDED_SECTIONS.TOC_PATTERNS) {
         if (pattern.test(trimmedText)) return true;
+    }
+
+    return false;
+}
+
+/**
+ * Structural check if a text looks like a heading (regardless of bold/size)
+ * Used to skip formatting checks like indent/spacing for likely headings
+ */
+function isLikelyHeading(text) {
+    if (!text || text.trim().length === 0) return false;
+    const trimmed = text.trim();
+
+    // Catch numbered headings like "1.", "1.1.", "1.1.1." at start
+    if (/^\d+(\.\d+)*\.?\s+[A-ZÇĞİÖŞÜ]/.test(trimmed)) return true;
+
+    // Catch chapter patterns
+    const chapterPatterns = [
+        /^(BİRİNCİ|İKİNCİ|ÜÇÜNCÜ|DÖRDÜNCÜ|BEŞİNCİ|ALTINCI|YEDİNCİ|SEKİZİNCİ|DOKUZUNCU|ONUNCU)\s*BÖLÜM/i,
+        /^(GİRİŞ|SONUÇ|KAYNAKÇA|ÖZET|ABSTRACT|İÇİNDEKİLER|ŞEKİLLER|TABLOLAR)$/i
+    ];
+    for (const pattern of chapterPatterns) {
+        if (pattern.test(trimmed)) return true;
     }
 
     return false;
@@ -860,7 +889,7 @@ async function checkParagraphFormatting(context, paragraphs) {
         }
 
         // Skip headings - they may be centered
-        if (detectHeading(text, font)) {
+        if (detectHeading(text, font) || isLikelyHeading(text)) {
             excludedCount++;
             continue;
         }
@@ -970,7 +999,7 @@ async function checkLineSpacing(context, paragraphs) {
         }
 
         // Skip headings - they may have different spacing
-        if (detectHeading(text, font)) {
+        if (detectHeading(text, font) || isLikelyHeading(text)) {
             excludedCount++;
             continue;
         }
