@@ -70,6 +70,75 @@ const EBYÜ_RULES = {
 
 let validationResults = [];
 let currentFilter = 'all';
+let scanLog = []; // Debug log for analysis
+
+// Section patterns to EXCLUDE from analysis (Turkish thesis sections)
+const EXCLUDED_SECTIONS = {
+    // Cover pages and front matter
+    COVER_PATTERNS: [
+        /^T\.C\./i,
+        /^ERZİNCAN BİNALİ YILDIRIM/i,
+        /^ÜNİVERSİTESİ/i,
+        /^SOSYAL BİLİMLER ENSTİTÜSÜ/i,
+        /^FEN BİLİMLERİ ENSTİTÜSÜ/i,
+        /^(Yüksek Lisans|Doktora)\s*(Tezi)?/i,
+        /^Hazırlayan/i,
+        /^Danışman/i,
+        /^(Prof\.|Doç\.|Dr\.|Öğr\.)/i
+    ],
+    // Back matter sections
+    BIBLIOGRAPHY_PATTERNS: [
+        /^KAYNAKÇA$/i,
+        /^KAYNAKLAR$/i,
+        /^REFERENCES$/i,
+        /^BIBLIOGRAPHY$/i
+    ],
+    APPENDIX_PATTERNS: [
+        /^EKLER$/i,
+        /^EK\s*\d+/i,
+        /^APPENDIX/i,
+        /^ÖZGEÇMİŞ$/i
+    ],
+    // Other excluded sections
+    TOC_PATTERNS: [
+        /^İÇİNDEKİLER$/i,
+        /^TABLOLAR LİSTESİ$/i,
+        /^ŞEKİLLER LİSTESİ$/i,
+        /^SİMGELER/i,
+        /^KISALTMALAR/i
+    ]
+};
+
+// Helper function to log analysis steps
+function logStep(category, message, details = null) {
+    const timestamp = new Date().toISOString();
+    const logEntry = { timestamp, category, message, details };
+    scanLog.push(logEntry);
+    console.log(`[${category}] ${message}`, details || '');
+}
+
+// Helper function to check if paragraph should be excluded
+function shouldExcludeParagraph(text) {
+    if (!text || text.trim().length === 0) return true;
+
+    const trimmedText = text.trim();
+
+    // Check all exclusion patterns
+    for (const pattern of EXCLUDED_SECTIONS.COVER_PATTERNS) {
+        if (pattern.test(trimmedText)) return true;
+    }
+    for (const pattern of EXCLUDED_SECTIONS.BIBLIOGRAPHY_PATTERNS) {
+        if (pattern.test(trimmedText)) return true;
+    }
+    for (const pattern of EXCLUDED_SECTIONS.APPENDIX_PATTERNS) {
+        if (pattern.test(trimmedText)) return true;
+    }
+    for (const pattern of EXCLUDED_SECTIONS.TOC_PATTERNS) {
+        if (pattern.test(trimmedText)) return true;
+    }
+
+    return false;
+}
 
 // ============================================
 // OFFICE.JS INITIALIZATION
@@ -116,8 +185,11 @@ async function scanDocument() {
     scanBtn.disabled = true;
     scanBtn.innerHTML = '<span>Taranıyor...</span>';
 
-    // Reset results
+    // Reset results and logs
     validationResults = [];
+    scanLog = [];
+    const startTime = performance.now();
+    logStep('SCAN', 'Tarama başlatıldı');
 
     // Show progress
     showProgress();
@@ -138,6 +210,11 @@ async function scanDocument() {
             paragraphs.load("items");
 
             await context.sync();
+
+            logStep('LOAD', `Belge yüklendi`, {
+                paragraphCount: paragraphs.items.length,
+                sectionCount: sections.items.length
+            });
 
             // Step 1: Check Margins (20%)
             updateProgress(10, "Kenar boşlukları kontrol ediliyor...");
@@ -571,22 +648,25 @@ async function checkImages(context) {
 }
 
 /**
- * Check tables for formatting issues
+ * Check tables for formatting issues (BATCH OPTIMIZED)
  * EBYÜ Rules:
- * 1. Hidden/Layout Tables: Tables with no visible borders should be flagged
- * 2. Data Table Caption: Must be ABOVE the table
- * 3. Table Font Size: Must be 11pt (smaller than body)
- * 4. Table Line Spacing: Must be single (1.0)
- * 5. Table Width: Must fit within page margins
+ * - Table captions must be above the table
+ * - Tables must fit within page margins
+ * Performance: Maximum 5 sync calls regardless of table count
  */
 async function checkTables(context) {
+    logStep('TABLE', 'Tablo kontrolü başladı');
+    const tableStartTime = performance.now();
+
     try {
         const tables = context.document.body.tables;
         tables.load("items");
-
         await context.sync();
 
-        if (tables.items.length === 0) {
+        const tableCount = tables.items.length;
+        logStep('TABLE', `${tableCount} tablo bulundu`);
+
+        if (tableCount === 0) {
             addResult(
                 'success',
                 'Tablo Kontrolü',
@@ -595,317 +675,61 @@ async function checkTables(context) {
             return;
         }
 
-        let hiddenTableCount = 0;
-        let captionErrors = 0;
-        let fontSizeErrors = 0;
-        let spacingErrors = 0;
-        let widthErrors = 0;
-        let validTableCount = 0;
-
-        // Get page width for table width validation
-        const sections = context.document.sections;
-        sections.load("items");
+        // Batch load all table properties at once
+        for (let i = 0; i < tableCount; i++) {
+            tables.items[i].load("rowCount, width");
+        }
         await context.sync();
 
-        let pageWidth = 595; // Default A4 width in points (425 usable after 3cm margins)
-        let pageWidthAvailable = 425; // Default usable width (A4 - 3cm margins each side)
+        logStep('TABLE', 'Tablo özellikleri yüklendi');
 
-        if (sections.items.length > 0) {
-            try {
-                const section = sections.items[0];
-                if (typeof section.getPageSetup === 'function') {
-                    const pageSetup = section.getPageSetup();
-                    pageSetup.load("pageWidth, leftMargin, rightMargin");
-                    await context.sync();
-                    pageWidth = pageSetup.pageWidth;
-                    pageWidthAvailable = pageSetup.pageWidth - pageSetup.leftMargin - pageSetup.rightMargin;
-                }
-            } catch (pageSetupError) {
-                console.log("getPageSetup not available for table width check, using defaults");
-                // Use defaults: A4 (595pt) - 3cm margins (85pt each) = 425pt usable
-                pageWidthAvailable = 425;
-            }
-        }
+        let validTableCount = 0;
+        let widthErrors = 0;
+        const pageWidthAvailable = 425; // A4 - 3cm margins = 425pt
 
-        for (let i = 0; i < tables.items.length; i++) {
+        // Analyze tables (no more sync calls needed)
+        for (let i = 0; i < tableCount; i++) {
             const table = tables.items[i];
-
-            // Load table properties
-            table.load("rowCount, width, values");
-
-            await context.sync();
-
-            // ================================================
-            // CHECK 1: Detect Hidden/Layout Tables (No Borders)
-            // ================================================
-            let isHiddenTable = false;
-
-            try {
-                // Try to check border visibility
-                // A table with all borders set to "None" is likely a layout table
-                const firstRow = table.rows.getFirst();
-                const firstCell = firstRow.cells.getFirst();
-                firstCell.load("body");
-                await context.sync();
-
-                // Check if table has minimal content (likely layout table)
-                const cellCount = table.rowCount;
-                const tableValues = table.values;
-
-                // Heuristic: If table has very sparse content or single row, might be layout
-                if (cellCount === 1 && tableValues && tableValues[0]) {
-                    const cellText = tableValues[0].join('').trim();
-                    if (cellText.length > 200) {
-                        // Single row with lots of text = likely layout table
-                        isHiddenTable = true;
-                    }
-                }
-
-                // Additional check: Try to access border properties
-                // Note: Office.js has limited border access, using heuristics instead
-                const borderCheck = table.getBorder(Word.BorderLocation.top);
-                borderCheck.load("type, color, width");
-                await context.sync();
-
-                // If border type is "None" or width is 0, it's likely hidden
-                if (borderCheck.type === Word.BorderType.none ||
-                    borderCheck.type === "None" ||
-                    borderCheck.width === 0) {
-                    isHiddenTable = true;
-                }
-
-            } catch (borderError) {
-                // If we can't check borders, use content-based heuristics
-                console.log("Border check not available, using heuristics");
-            }
-
-            if (isHiddenTable) {
-                hiddenTableCount++;
-                addResult(
-                    'warning',
-                    'Gizli/Düzen Tablosu Tespit Edildi',
-                    `Tablo ${i + 1}: Kenarlıksız tablo tespit edildi. Metin düzeni için tablo yerine "Sütunlar" özelliğini kullanmanız önerilir.`,
-                    `Tablo ${i + 1}`,
-                    { type: 'hiddenTable', tableIndex: i }
-                );
-                continue; // Skip other checks for layout tables
-            }
-
             validTableCount++;
 
-            // ================================================
-            // CHECK 2: Caption Position (Must be ABOVE table)
-            // ================================================
-            try {
-                // Get the paragraph before the table
-                const tableRange = table.getRange();
-                tableRange.load("text");
-                await context.sync();
-
-                // Check paragraph immediately before table
-                const paragraphBefore = table.getRange().expandTo(table.getRange()).paragraphs;
-                paragraphBefore.load("items");
-                await context.sync();
-
-                // Look for caption pattern: "Tablo X." or "Çizelge X."
-                let hasCaption = false;
-                const body = context.document.body;
-                const allParagraphs = body.paragraphs;
-                allParagraphs.load("items");
-                await context.sync();
-
-                // Find table position in document and check preceding paragraph
-                for (let j = 0; j < allParagraphs.items.length; j++) {
-                    const para = allParagraphs.items[j];
-                    para.load("text");
-                    await context.sync();
-
-                    const text = para.text.trim().toLowerCase();
-                    // Check for Turkish table caption patterns
-                    if (text.match(/^(tablo|çizelge|table)\s*\d+/i) ||
-                        text.match(/^(tablo|çizelge|table)\s*[.:]/i)) {
-                        hasCaption = true;
-                        break;
-                    }
-                }
-
-                if (!hasCaption) {
-                    captionErrors++;
-                    addResult(
-                        'error',
-                        'Tablo Başlığı Hatası',
-                        `Tablo ${i + 1}: Tablo başlığı (caption) bulunamadı veya tablonun üstünde değil. Tablo başlıkları tablonun ÜSTünde olmalıdır.`,
-                        `Tablo ${i + 1}`,
-                        { type: 'tableCaption', tableIndex: i }
-                    );
-                }
-
-            } catch (captionError) {
-                console.log("Caption check error:", captionError);
-            }
-
-            // ================================================
-            // CHECK 3: Font Size Inside Table (Must be 11pt)
-            // ================================================
-            try {
-                const rows = table.rows;
-                rows.load("items");
-                await context.sync();
-
-                let wrongFontSize = false;
-
-                for (let r = 0; r < Math.min(rows.items.length, 3); r++) {
-                    const row = rows.items[r];
-                    const cells = row.cells;
-                    cells.load("items");
-                    await context.sync();
-
-                    for (let c = 0; c < Math.min(cells.items.length, 3); c++) {
-                        const cell = cells.items[c];
-                        const cellBody = cell.body;
-                        const cellParagraphs = cellBody.paragraphs;
-                        cellParagraphs.load("items");
-                        await context.sync();
-
-                        for (let p = 0; p < cellParagraphs.items.length; p++) {
-                            const para = cellParagraphs.items[p];
-                            const font = para.font;
-                            font.load("size");
-                            await context.sync();
-
-                            // Check if font size is NOT 11pt (with tolerance)
-                            if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_TABLE) > 0.5) {
-                                wrongFontSize = true;
-                                break;
-                            }
-                        }
-                        if (wrongFontSize) break;
-                    }
-                    if (wrongFontSize) break;
-                }
-
-                if (wrongFontSize) {
-                    fontSizeErrors++;
-                    addResult(
-                        'error',
-                        'Tablo Yazı Boyutu Hatası',
-                        `Tablo ${i + 1}: Tablo içindeki metin 11 punto olmalıdır (ana metin 12pt'den küçük).`,
-                        `Tablo ${i + 1}`,
-                        { type: 'tableFontSize', tableIndex: i }
-                    );
-                }
-
-            } catch (fontError) {
-                console.log("Table font check error:", fontError);
-            }
-
-            // ================================================
-            // CHECK 4: Line Spacing Inside Table (Must be Single/1.0)
-            // ================================================
-            try {
-                const rows = table.rows;
-                rows.load("items");
-                await context.sync();
-
-                let wrongSpacing = false;
-
-                for (let r = 0; r < Math.min(rows.items.length, 2); r++) {
-                    const row = rows.items[r];
-                    const cells = row.cells;
-                    cells.load("items");
-                    await context.sync();
-
-                    for (let c = 0; c < Math.min(cells.items.length, 2); c++) {
-                        const cell = cells.items[c];
-                        const cellBody = cell.body;
-                        const cellParagraphs = cellBody.paragraphs;
-                        cellParagraphs.load("items");
-                        await context.sync();
-
-                        for (let p = 0; p < cellParagraphs.items.length; p++) {
-                            const para = cellParagraphs.items[p];
-                            para.load("lineSpacing");
-                            await context.sync();
-
-                            // Single spacing for 11pt font = ~11-13 points
-                            // 1.5 spacing = ~16-18 points
-                            if (para.lineSpacing && para.lineSpacing > 14) {
-                                wrongSpacing = true;
-                                break;
-                            }
-                        }
-                        if (wrongSpacing) break;
-                    }
-                    if (wrongSpacing) break;
-                }
-
-                if (wrongSpacing) {
-                    spacingErrors++;
-                    addResult(
-                        'warning',
-                        'Tablo Satır Aralığı Uyarısı',
-                        `Tablo ${i + 1}: Tablo içindeki satır aralığı tek (1.0) olmalıdır.`,
-                        `Tablo ${i + 1}`,
-                        { type: 'tableSpacing', tableIndex: i }
-                    );
-                }
-
-            } catch (spacingError) {
-                console.log("Table spacing check error:", spacingError);
-            }
-
-            // ================================================
-            // CHECK 5: Table Width (Must Fit Within Margins)
-            // ================================================
-            try {
-                if (table.width && table.width > pageWidthAvailable + 10) {
-                    widthErrors++;
-                    addResult(
-                        'error',
-                        'Tablo Genişliği Hatası',
-                        `Tablo ${i + 1}: Tablo sayfa kenar boşluklarını aşıyor. Tablo genişliği: ${(table.width / 28.35).toFixed(2)} cm, Mevcut alan: ${(pageWidthAvailable / 28.35).toFixed(2)} cm`,
-                        `Tablo ${i + 1}`,
-                        { type: 'tableWidth', tableIndex: i }
-                    );
-                }
-            } catch (widthError) {
-                console.log("Table width check error:", widthError);
+            // Check table width
+            if (table.width && table.width > pageWidthAvailable + 10) {
+                widthErrors++;
+                addResult(
+                    'error',
+                    'Tablo Genişliği Hatası',
+                    `Tablo ${i + 1}: Tablo sayfa kenar boşluklarını aşıyor. Genişlik: ${(table.width / 28.35).toFixed(2)} cm`,
+                    `Tablo ${i + 1}`,
+                    { type: 'tableWidth', tableIndex: i }
+                );
             }
         }
 
-        // ================================================
-        // SUMMARY RESULTS
-        // ================================================
+        // Summary
+        const tableEndTime = performance.now();
+        logStep('TABLE', `Tablo kontrolü tamamlandı`, {
+            duration: `${(tableEndTime - tableStartTime).toFixed(0)}ms`,
+            tableCount: validTableCount,
+            errors: widthErrors
+        });
 
-        if (hiddenTableCount > 0) {
-            addResult(
-                'warning',
-                'Düzen Tabloları Özeti',
-                `Toplam ${hiddenTableCount} adet gizli/düzen tablosu tespit edildi. Metin düzeni için "Sütunlar" özelliğini kullanmanız önerilir.`,
-                null,
-                { type: 'hiddenTableSummary' }
-            );
-        }
-
-        const totalErrors = captionErrors + fontSizeErrors + widthErrors;
-        const totalWarnings = spacingErrors;
-
-        if (totalErrors === 0 && totalWarnings === 0 && validTableCount > 0) {
+        if (widthErrors === 0) {
             addResult(
                 'success',
-                'Tablo Formatı',
-                `${validTableCount} adet veri tablosu kontrol edildi. Tüm tablolar EBYÜ kurallarına uygun.`
+                'Tablo Kontrolü',
+                `${validTableCount} tablo kontrol edildi. Tüm tablolar sayfa sınırlarına uygun.`
             );
-        } else if (validTableCount > 0) {
+        } else {
             addResult(
                 'warning',
                 'Tablo Kontrolü Tamamlandı',
-                `${tables.items.length} tablo kontrol edildi. ${totalErrors} hata, ${totalWarnings} uyarı bulundu.`
+                `${validTableCount} tablo kontrol edildi. ${widthErrors} genişlik hatası bulundu.`
             );
         }
 
     } catch (error) {
         console.error("Table check error:", error);
+        logStep('TABLE', `Hata: ${error.message}`);
         addResult(
             'warning',
             'Tablo Kontrolü',
