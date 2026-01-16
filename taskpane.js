@@ -193,6 +193,8 @@ async function scanDocument() {
     updateProgress(0, "Belge analiz ediliyor...");
 
     try {
+        // Clear previous highlights
+        await clearHighlights();
         await Word.run(async (context) => {
             // Load document body
             const body = context.document.body;
@@ -615,7 +617,8 @@ async function checkFonts(context, paragraphs) {
                 'Yazı Tipi Hatası',
                 `"${err.fontName}" yerine "Times New Roman" kullanılmalıdır.`,
                 `Paragraf ${err.index + 1}: "${err.text}..."`,
-                { type: 'font', paragraphIndex: err.index }
+                { type: 'font', paragraphIndex: err.index },
+                err.index
             );
         } else if (err.type === 'heading_size') {
             addResult(
@@ -623,7 +626,8 @@ async function checkFonts(context, paragraphs) {
                 'Başlık Boyutu',
                 `Başlık ${err.fontSize}pt yerine 14pt olmalıdır.`,
                 `"${err.text}..."`,
-                { type: 'headingSize', paragraphIndex: err.index }
+                { type: 'headingSize', paragraphIndex: err.index },
+                err.index
             );
         }
     }
@@ -717,12 +721,13 @@ function detectHeading(text, font) {
  * EBYÜ Rules:
  * - Chapter headings: 14pt, bold, centered, all caps
  * - Section headings (1.1, 1.2): 12pt, bold, left-aligned
- * NOTE: detectHeading now REQUIRES bold, so bold errors should not occur
+ * - 6nk spacing before and after headings
  */
 async function checkHeadings(context, paragraphs) {
     logStep('HEADING', 'Başlık kontrolü başladı');
 
     let headingCount = 0;
+    let boldErrors = 0;
     let sizeErrors = 0;
     let alignmentErrors = 0;
     const headingDetails = [];
@@ -739,61 +744,80 @@ async function checkHeadings(context, paragraphs) {
         const text = para.text || '';
         const font = para.font;
 
-        // AGGRESSIVE FILTERING: Skip empty, whitespace-only, or very short paragraphs
-        const trimmed = text.trim();
-        if (trimmed.length < 5) continue;
-        if (/^[\s\r\n\t]+$/.test(text)) continue;
+        if (text.trim() === '') continue;
 
-        // Only count real text paragraphs
-        // Skip paragraphs that are just punctuation or numbers
-        if (/^[\d\s.,;:!?]+$/.test(trimmed)) continue;
-
-        // Check if this is a heading (detectHeading now requires bold)
+        // Check if this is a heading
         if (!detectHeading(text, font)) continue;
 
         headingCount++;
+        const trimmed = text.trim();
 
-        // Determine heading level for size/alignment checks
+        // Determine heading level
         const isChapterHeading = /^(BİRİNCİ|İKİNCİ|ÜÇÜNCÜ|DÖRDÜNCÜ|BEŞİNCİ|ALTINCI|YEDİNCİ|SEKİZİNCİ|DOKUZUNCU|ONUNCU)\s*BÖLÜM/i.test(trimmed) ||
-            /^(GİRİŞ|SONUÇ|KAYNAKÇA|ÖZET|ABSTRACT|İÇİNDEKİLER|ÖN\s*SÖZ|TEŞEKKÜR)$/i.test(trimmed) ||
+            /^(GİRİŞ|SONUÇ|KAYNAKÇA|ÖZET|ABSTRACT)$/i.test(trimmed) ||
             /^BÖLÜM\s*\d+/i.test(trimmed);
+
+        // Check bold - all headings must be bold
+        if (!font.bold) {
+            boldErrors++;
+            if (headingDetails.length < 5) {
+                headingDetails.push({ text: trimmed.substring(0, 40), issue: 'bold', index: i });
+            }
+        }
 
         // Check font size for chapter headings (14pt)
         if (isChapterHeading) {
-            if (font.size && Math.abs(font.size - 14) > 1) {
+            if (font.size && Math.abs(font.size - 14) > 0.5) {
                 sizeErrors++;
-                if (headingDetails.length < 3) {
-                    headingDetails.push({ text: trimmed.substring(0, 40), issue: 'size', actual: font.size });
+                if (headingDetails.length < 5) {
+                    headingDetails.push({ text: trimmed.substring(0, 40), issue: 'size', index: i });
                 }
             }
             // Chapter headings should be centered
             if (para.alignment !== Word.Alignment.centered) {
                 alignmentErrors++;
+                if (headingDetails.length < 5) {
+                    headingDetails.push({ text: trimmed.substring(0, 40), issue: 'alignment', index: i });
+                }
             }
         }
     }
 
-    logStep('HEADING', `Kontrol tamamlandı`, { headings: headingCount, sizeErrors, alignmentErrors });
+    logStep('HEADING', `Kontrol tamamlandı`, { headings: headingCount, boldErrors, sizeErrors, alignmentErrors });
 
-    // Report results - NO LONGER REPORT BOLD ERRORS (detectHeading handles this)
-    if (alignmentErrors > 0) {
-        addResult('warning', 'Başlık Hizalama',
-            `${alignmentErrors} bölüm başlığı ortalanmamış. Ana bölüm başlıkları ortalı olmalıdır.`,
-            null, { type: 'headingAlignment' });
+    // Report results - report each bold error if few, otherwise summary
+    for (const detail of headingDetails) {
+        if (detail.issue === 'bold') {
+            addResult('error', 'Başlık Kalınlık Hatası',
+                `"${detail.text}..." başlığı koyu (bold) yazılmalıdır.`,
+                `Paragraf ${detail.index + 1}`,
+                { type: 'headingBold' },
+                detail.index);
+        } else if (detail.issue === 'size') {
+            addResult('warning', 'Başlık Boyutu',
+                `"${detail.text}..." başlığı 14pt olmalıdır.`,
+                `Paragraf ${detail.index + 1}`,
+                { type: 'headingSize' },
+                detail.index);
+        } else if (detail.issue === 'alignment') {
+            addResult('warning', 'Başlık Hizalaması',
+                `"${detail.text}..." ana başlığı ortalanmalıdır.`,
+                `Paragraf ${detail.index + 1}`,
+                { type: 'headingAlignment' },
+                detail.index);
+        }
     }
 
-    if (sizeErrors > 0) {
-        addResult('warning', 'Başlık Boyutu',
-            `${sizeErrors} başlıkta yazı boyutu uygun değil. Bölüm başlıkları 14pt olmalıdır.`,
-            headingDetails.map(h => `"${h.text}..." (${h.actual}pt)`).join(', '),
-            { type: 'headingSize' });
+    if (boldErrors > 5) {
+        addResult('error', 'Çoklu Başlık Kalınlık Hatası',
+            `Toplamda ${boldErrors} başlık koyu değil.`,
+            null, { type: 'headingBoldAll' });
     }
 
-    if (headingCount > 0 && sizeErrors === 0 && alignmentErrors === 0) {
+    if (headingCount > 0 && boldErrors === 0 && sizeErrors === 0 && alignmentErrors === 0) {
         addResult('success', 'Başlık Kontrolü', `${headingCount} başlık kontrol edildi. Tümü kurallara uygun.`);
     } else if (headingCount === 0) {
-        // Don't show warning for no headings - might be intentional
-        logStep('HEADING', 'Standart başlık tespit edilemedi');
+        addResult('warning', 'Başlık Kontrolü', 'Belgede standart başlık formatı tespit edilemedi.');
     }
 }
 
@@ -809,6 +833,7 @@ async function checkParagraphFormatting(context, paragraphs) {
     let indentErrors = 0;
     let checkedCount = 0;
     let excludedCount = 0;
+    const formatErrors = [];
 
     // BATCH LOAD: Load all paragraph properties in ONE sync call
     for (let i = 0; i < paragraphs.items.length; i++) {
@@ -851,6 +876,9 @@ async function checkParagraphFormatting(context, paragraphs) {
         // Check alignment - body text should be justified
         if (para.alignment !== Word.Alignment.justified) {
             alignmentErrors++;
+            if (formatErrors.length < 5) {
+                formatErrors.push({ index: i, type: 'alignment', text: text.substring(0, 40) });
+            }
         }
 
         // Check first line indent (only for body paragraphs)
@@ -859,6 +887,9 @@ async function checkParagraphFormatting(context, paragraphs) {
             // Allow 0 indent (block quotes, lists) and expected indent
             if (para.firstLineIndent !== 0) {
                 indentErrors++;
+                if (formatErrors.length < 5) {
+                    formatErrors.push({ index: i, type: 'indent', text: text.substring(0, 40) });
+                }
             }
         }
     }
@@ -870,26 +901,34 @@ async function checkParagraphFormatting(context, paragraphs) {
         indentErrors
     });
 
-    if (alignmentErrors > 0) {
-        addResult(
-            'error',
-            'Hizalama Hatası',
-            `${alignmentErrors} paragraf iki yana yaslanmamış (Justify).`,
-            `Kontrol edilen: ${checkedCount} paragraf (${excludedCount} hariç tutuldu)`,
-            { type: 'alignment' }
-        );
-    } else {
-        addResult('success', 'Paragraf Hizalama', `${checkedCount} paragraf kontrol edildi. Tümü iki yana yaslı.`);
+    // Report individual errors as examples
+    for (const err of formatErrors) {
+        if (err.type === 'alignment') {
+            addResult(
+                'error',
+                'Hizalama Hatası',
+                `"${err.text}..." paragrafı iki yana yaslanmamış.`,
+                `Paragraf ${err.index + 1}`,
+                { type: 'alignment' },
+                err.index
+            );
+        } else if (err.type === 'indent') {
+            addResult(
+                'warning',
+                'Girinti Uyarısı',
+                `"${err.text}..." paragrafında ilk satır girintisi 1.25 cm değil.`,
+                `Paragraf ${err.index + 1}`,
+                { type: 'indent' },
+                err.index
+            );
+        }
     }
 
-    if (indentErrors > 0) {
-        addResult(
-            'warning',
-            'Girinti Uyarısı',
-            `${indentErrors} paragrafta ilk satır girintisi 1.25 cm değil.`,
-            `Not: Bazı öğeler (alıntı, liste) girinti olmadan da olabilir.`,
-            { type: 'indent' }
-        );
+    if (alignmentErrors > 5 || indentErrors > 5) {
+        addResult('warning', 'Çoklu Format Hatası',
+            `Belgede çok sayıda hizalama veya girinti hatası var.`,
+            `Toplam: ${alignmentErrors} hizalama, ${indentErrors} girinti`,
+            null);
     }
 }
 
@@ -904,6 +943,7 @@ async function checkLineSpacing(context, paragraphs) {
     let spacingErrors = 0;
     let checkedCount = 0;
     let excludedCount = 0;
+    const spacingErrorExamples = [];
 
     // BATCH LOAD: Load all paragraph properties in ONE sync call
     for (let i = 0; i < paragraphs.items.length; i++) {
@@ -950,14 +990,14 @@ async function checkLineSpacing(context, paragraphs) {
         checkedCount++;
 
         // Check line spacing for body text
-        // 1.5 line spacing for 12pt font = approximately 18 points
-        // Allow some tolerance (17-19 points)
         if (para.lineSpacing) {
             const spacing = para.lineSpacing;
-            // Valid 1.5 spacing values: 18 (points), or values between 17-20
             const isValid15 = (spacing >= 17 && spacing <= 20) || spacing === 1.5;
             if (!isValid15) {
                 spacingErrors++;
+                if (spacingErrorExamples.length < 5) {
+                    spacingErrorExamples.push({ index: i, text: text.substring(0, 40) });
+                }
             }
         }
     }
@@ -968,16 +1008,24 @@ async function checkLineSpacing(context, paragraphs) {
         errors: spacingErrors
     });
 
-    if (spacingErrors > 0) {
+    // Report example errors
+    for (const err of spacingErrorExamples) {
         addResult(
             'error',
             'Satır Aralığı Hatası',
-            `${spacingErrors} paragrafta satır aralığı 1.5 satır değil.`,
-            `Kontrol edilen: ${checkedCount} paragraf (${excludedCount} hariç tutuldu - tablo, dipnot, başlık vb.)`,
-            { type: 'lineSpacing' }
+            `"${err.text}..." paragrafı 1.5 satır aralığında değil.`,
+            `Paragraf ${err.index + 1}`,
+            { type: 'lineSpacing' },
+            err.index
         );
-    } else {
-        addResult('success', 'Satır Aralığı', `${checkedCount} paragraf kontrol edildi. Tümü 1.5 satır aralığında.`);
+    }
+
+    if (spacingErrors > 5) {
+        addResult('warning', 'Çoklu Satır Aralığı Hatası',
+            `Toplamda ${spacingErrors} paragrafta satır aralığı hatalı.`,
+            null,
+            { type: 'lineSpacingAll' }
+        );
     }
 }
 
@@ -1159,9 +1207,30 @@ function addManualCheckReminders() {
     logStep('MANUAL', 'Uyarılar eklendi');
 }
 
-// ============================================
-// FIX FUNCTIONS
-// ============================================
+/**
+ * Highlight a paragraph in the document and scroll to it
+ */
+async function highlightParagraph(index) {
+    await Word.run(async (context) => {
+        const paragraphs = context.document.body.paragraphs;
+        paragraphs.load("items");
+        await context.sync();
+
+        if (index >= 0 && index < paragraphs.items.length) {
+            const para = paragraphs.items[index];
+
+            // Clear previous highlights by others (optional, but keep it simple here)
+            // Note: We use highlightColor instead of background color for better visibility
+            para.font.highlightColor = "Yellow";
+            para.select(); // Scroll to and select the paragraph
+
+            await context.sync();
+            console.log(`Highlighted paragraph at index ${index}`);
+        }
+    }).catch(function (error) {
+        console.log("Error highlighting paragraph: " + error);
+    });
+}
 
 /**
  * Fix all fonts to Times New Roman
@@ -1240,13 +1309,14 @@ async function fixAllSpacing() {
 // UI HELPER FUNCTIONS
 // ============================================
 
-function addResult(type, title, description, location = null, fixData = null) {
+function addResult(type, title, description, location = null, fixData = null, paraIndex = undefined) {
     validationResults.push({
         type,
         title,
         description,
         location,
-        fixData
+        fixData,
+        paraIndex
     });
 }
 
@@ -1311,6 +1381,8 @@ function renderFilteredResults() {
 
 function createResultItemHTML(result) {
     const iconSVG = getIconSVG(result.type);
+
+    // Quick Fix button (if available)
     const fixButton = result.fixData ? `
         <button class="fix-button" data-fix-type="${result.fixData.type}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1318,6 +1390,16 @@ function createResultItemHTML(result) {
                 <path d="M22 4l-8 8-4-4"/>
             </svg>
             Düzelt
+        </button>
+    ` : '';
+
+    // Highlight/Show button (if paraIndex is available)
+    const showButton = result.paraIndex !== undefined ? `
+        <button class="show-button" onclick="highlightParagraph(${result.paraIndex})">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+            📍 GÖSTER
         </button>
     ` : '';
 
@@ -1331,7 +1413,12 @@ function createResultItemHTML(result) {
                     ${result.location ? `<div class="result-location">📍 ${result.location}</div>` : ''}
                 </div>
             </div>
-            ${fixButton ? `<div class="result-actions">${fixButton}</div>` : ''}
+            ${(fixButton || showButton) ? `
+                <div class="result-actions">
+                    ${showButton}
+                    ${fixButton}
+                </div>
+            ` : ''}
         </div>
     `;
 }
@@ -1400,6 +1487,22 @@ function setActiveFilter(filter) {
     });
 
     renderFilteredResults();
+}
+
+/**
+ * Clear all highlights in the document body
+ */
+async function clearHighlights() {
+    await Word.run(async (context) => {
+        const body = context.document.body;
+        // Search and clear yellow highlighting
+        // Note: Simple approach is to set highlightColor to null for the whole body
+        body.font.highlightColor = null;
+        await context.sync();
+        console.log("Highlights cleared");
+    }).catch(function (error) {
+        console.log("Error clearing highlights: " + error);
+    });
 }
 
 function showProgress() {
