@@ -218,6 +218,11 @@ async function scanDocument() {
             await checkMargins(context, sections);
             await context.sync();
 
+            // Step 1.5: Check Cover Page (25%)
+            updateProgress(20, "Kapak sayfası kontrol ediliyor...");
+            await checkCoverPage(context, paragraphs);
+            await context.sync();
+
             // Step 2: Check Fonts (40%)
             updateProgress(30, "Yazı tipleri kontrol ediliyor...");
             await checkFonts(context, paragraphs);
@@ -403,6 +408,100 @@ async function checkMargins(context, sections) {
             null,
             { type: 'margin' }
         );
+    }
+}
+
+/**
+ * Check cover page formatting
+ * EBYÜ Rules:
+ * - T.C., University name, Institute, Thesis type must be present
+ * - All elements must be centered
+ * - Title/Institute name should be 16pt (or 14pt for some elements)
+ */
+async function checkCoverPage(context, paragraphs) {
+    logStep('COVER', 'Kapak sayfası kontrolü başladı');
+
+    // Cover page elements to look for (first ~20 paragraphs)
+    const coverElements = {
+        tc: false,           // T.C.
+        university: false,   // Erzincan Binali Yıldırım Üniversitesi
+        institute: false,    // Sosyal Bilimler Enstitüsü / Fen Bilimleri Enstitüsü
+        thesisType: false,   // Yüksek Lisans Tezi / Doktora Tezi
+        title: false,        // Thesis title
+        author: false,       // Hazırlayan / Author name
+        advisor: false,      // Danışman / Prof. Dr. etc.
+        year: false          // Year (e.g., 2024, 2025)
+    };
+
+    let alignmentIssues = 0;
+    let coverParagraphCount = 0;
+
+    // Check first 30 paragraphs (cover page area)
+    const checkCount = Math.min(paragraphs.items.length, 30);
+
+    for (let i = 0; i < checkCount; i++) {
+        const para = paragraphs.items[i];
+        const text = (para.text || '').trim();
+
+        if (text === '') continue;
+        coverParagraphCount++;
+
+        // Check for cover elements
+        if (/^T\.?\s*C\.?$/i.test(text)) coverElements.tc = true;
+        if (/ERZİNCAN BİNALİ YILDIRIM/i.test(text) || /ÜNİVERSİTESİ/i.test(text)) coverElements.university = true;
+        if (/ENSTİTÜSÜ/i.test(text)) coverElements.institute = true;
+        if (/YÜKSEK LİSANS|DOKTORA|TEZİ/i.test(text)) coverElements.thesisType = true;
+        if (/HAZIRLAYAN/i.test(text)) coverElements.author = true;
+        if (/DANIŞMAN/i.test(text) || /Prof\.|Doç\.|Dr\.|Öğr\./i.test(text)) coverElements.advisor = true;
+        if (/^20(2[0-9]|3[0-9])$/.test(text)) coverElements.year = true;
+
+        // Check if cover elements are centered
+        if (para.alignment !== Word.Alignment.centered) {
+            // Only count if it looks like a cover element
+            if (/^T\.?\s*C\.?$|ERZİNCAN|ENSTİTÜSÜ|TEZİ|HAZIRLAYAN|DANIŞMAN/i.test(text)) {
+                alignmentIssues++;
+            }
+        }
+    }
+
+    const foundElements = Object.values(coverElements).filter(v => v).length;
+    const totalElements = Object.keys(coverElements).length;
+
+    logStep('COVER', `Kontrol tamamlandı`, {
+        found: foundElements,
+        total: totalElements,
+        alignmentIssues
+    });
+
+    // Report results
+    if (foundElements >= 5) {
+        // Cover page detected
+        if (alignmentIssues > 0) {
+            addResult('warning', 'Kapak Sayfası Hizalama',
+                `${alignmentIssues} kapak öğesi ortalanmamış. Kapak sayfasındaki tüm öğeler ortalı olmalıdır.`,
+                null, { type: 'coverAlignment' });
+        }
+
+        const missingElements = [];
+        if (!coverElements.tc) missingElements.push('T.C.');
+        if (!coverElements.university) missingElements.push('Üniversite adı');
+        if (!coverElements.institute) missingElements.push('Enstitü');
+        if (!coverElements.thesisType) missingElements.push('Tez türü');
+        if (!coverElements.year) missingElements.push('Yıl');
+
+        if (missingElements.length > 0) {
+            addResult('warning', 'Kapak Sayfası Eksikleri',
+                `Kapak sayfasında eksik öğeler: ${missingElements.join(', ')}`,
+                null, { type: 'coverMissing' });
+        } else {
+            addResult('success', 'Kapak Sayfası',
+                'Kapak sayfası öğeleri tespit edildi ve kontrol edildi.');
+        }
+    } else {
+        addResult('warning', 'Kapak Sayfası',
+            'Kapak sayfası tam olarak tespit edilemedi. Lütfen kapak sayfasının EBYÜ kurallarına uygun olduğunu manuel kontrol edin.',
+            'Beklenen öğeler: T.C., Üniversite adı, Enstitü, Tez türü, Hazırlayan, Danışman, Yıl',
+            { type: 'coverNotFound' });
     }
 }
 
