@@ -328,25 +328,32 @@ async function checkMargins(context, sections) {
 }
 
 /**
- * Check font settings
+ * Check font settings (BATCH OPTIMIZED)
  * EBYÜ Rule: Times New Roman, 12pt for body text
+ * Performance: Single sync call for all paragraphs
  */
 async function checkFonts(context, paragraphs) {
     let nonTNRCount = 0;
     let wrongSizeCount = 0;
     let checkedCount = 0;
+    const fontErrors = []; // Store first 3 errors for display
 
+    // BATCH LOAD: Load all paragraph properties in ONE sync call
+    for (let i = 0; i < paragraphs.items.length; i++) {
+        const para = paragraphs.items[i];
+        para.load("text");
+        para.font.load("name, size, bold");
+    }
+
+    // Single sync for all paragraphs
+    await context.sync();
+
+    // Now analyze all paragraphs (no more sync calls needed)
     for (let i = 0; i < paragraphs.items.length; i++) {
         const para = paragraphs.items[i];
         const font = para.font;
-        font.load("name, size, bold");
-
-        await context.sync();
 
         // Skip empty paragraphs
-        para.load("text");
-        await context.sync();
-
         if (!para.text || para.text.trim() === '') continue;
 
         checkedCount++;
@@ -354,14 +361,12 @@ async function checkFonts(context, paragraphs) {
         // Check font name
         if (font.name && font.name !== EBYÜ_RULES.FONT_NAME) {
             nonTNRCount++;
-            if (nonTNRCount <= 3) { // Only show first 3 individual errors
-                addResult(
-                    'error',
-                    'Yazı Tipi Hatası',
-                    `"${font.name}" yerine "Times New Roman" kullanılmalıdır.`,
-                    `Paragraf ${i + 1}: "${para.text.substring(0, 50)}..."`,
-                    { type: 'font', paragraphIndex: i }
-                );
+            if (fontErrors.length < 3) {
+                fontErrors.push({
+                    index: i,
+                    fontName: font.name,
+                    text: para.text.substring(0, 50)
+                });
             }
         }
 
@@ -373,6 +378,17 @@ async function checkFonts(context, paragraphs) {
                 wrongSizeCount++;
             }
         }
+    }
+
+    // Display first 3 font errors
+    for (const err of fontErrors) {
+        addResult(
+            'error',
+            'Yazı Tipi Hatası',
+            `"${err.fontName}" yerine "Times New Roman" kullanılmalıdır.`,
+            `Paragraf ${err.index + 1}: "${err.text}..."`,
+            { type: 'font', paragraphIndex: err.index }
+        );
     }
 
     // Summary for font issues
@@ -406,18 +422,25 @@ async function checkFonts(context, paragraphs) {
 }
 
 /**
- * Check paragraph formatting
+ * Check paragraph formatting (BATCH OPTIMIZED)
  * EBYÜ Rule: Justified alignment, 1.25cm first line indent
+ * Performance: Single sync call for all paragraphs
  */
 async function checkParagraphFormatting(context, paragraphs) {
     let alignmentErrors = 0;
     let indentErrors = 0;
 
+    // BATCH LOAD: Load all paragraph properties in ONE sync call
+    for (let i = 0; i < paragraphs.items.length; i++) {
+        paragraphs.items[i].load("text, alignment, firstLineIndent");
+    }
+
+    // Single sync for all paragraphs
+    await context.sync();
+
+    // Now analyze all paragraphs (no more sync calls needed)
     for (let i = 0; i < paragraphs.items.length; i++) {
         const para = paragraphs.items[i];
-        para.load("text, alignment, firstLineIndent");
-
-        await context.sync();
 
         // Skip empty paragraphs
         if (!para.text || para.text.trim() === '') continue;
@@ -461,17 +484,24 @@ async function checkParagraphFormatting(context, paragraphs) {
 }
 
 /**
- * Check line spacing
+ * Check line spacing (BATCH OPTIMIZED)
  * EBYÜ Rule: 1.5 line spacing for body text
+ * Performance: Single sync call for all paragraphs
  */
 async function checkLineSpacing(context, paragraphs) {
     let spacingErrors = 0;
 
+    // BATCH LOAD: Load all paragraph properties in ONE sync call
+    for (let i = 0; i < paragraphs.items.length; i++) {
+        paragraphs.items[i].load("text, lineSpacing, lineUnitAfter, lineUnitBefore");
+    }
+
+    // Single sync for all paragraphs
+    await context.sync();
+
+    // Now analyze all paragraphs (no more sync calls needed)
     for (let i = 0; i < paragraphs.items.length; i++) {
         const para = paragraphs.items[i];
-        para.load("text, lineSpacing, lineUnitAfter, lineUnitBefore");
-
-        await context.sync();
 
         // Skip empty paragraphs
         if (!para.text || para.text.trim() === '') continue;
