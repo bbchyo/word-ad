@@ -204,59 +204,126 @@ async function scanDocument() {
  * EBYÜ Rule: All margins must be 3 cm (85 points)
  */
 async function checkMargins(context, sections) {
-    for (let i = 0; i < sections.items.length; i++) {
-        const section = sections.items[i];
-        const pageSetup = section.getPageSetup();
+    try {
+        for (let i = 0; i < sections.items.length; i++) {
+            const section = sections.items[i];
 
-        pageSetup.load("topMargin, bottomMargin, leftMargin, rightMargin");
-        await context.sync();
+            // Load section properties directly - Mac compatible approach
+            section.load("headerFooterDistance");
+            await context.sync();
 
-        const margins = {
-            top: pageSetup.topMargin,
-            bottom: pageSetup.bottomMargin,
-            left: pageSetup.leftMargin,
-            right: pageSetup.rightMargin
-        };
+            // Try to get page setup using body properties
+            const sectionBody = section.body;
+            sectionBody.load("*");
+            await context.sync();
 
-        const tolerance = EBYÜ_RULES.MARGIN_TOLERANCE;
-        const expected = EBYÜ_RULES.MARGIN_POINTS;
+            // Use the section's getNext/getFirst approach to access page properties
+            // For Mac compatibility, we access properties differently
+            let margins = null;
 
-        let hasError = false;
-        let errorDetails = [];
+            try {
+                // First, try the standard approach (works on Windows)
+                if (typeof section.getPageSetup === 'function') {
+                    const pageSetup = section.getPageSetup();
+                    pageSetup.load("topMargin, bottomMargin, leftMargin, rightMargin");
+                    await context.sync();
 
-        if (Math.abs(margins.top - expected) > tolerance) {
-            hasError = true;
-            errorDetails.push(`Üst: ${(margins.top / 28.35).toFixed(2)} cm`);
+                    margins = {
+                        top: pageSetup.topMargin,
+                        bottom: pageSetup.bottomMargin,
+                        left: pageSetup.leftMargin,
+                        right: pageSetup.rightMargin
+                    };
+                }
+            } catch (pageSetupError) {
+                console.log("getPageSetup not available, using alternative method");
+            }
+
+            // If we couldn't get margins via getPageSetup, try alternative
+            if (!margins) {
+                try {
+                    // Alternative: Access via document sections properties
+                    // Load section properties that might contain margin info
+                    const sectionProps = context.document.sections.getFirst();
+                    sectionProps.load("body");
+                    await context.sync();
+
+                    // Use ContentControl or Range-based approach
+                    const range = sectionBody.getRange();
+                    range.load("*");
+                    await context.sync();
+
+                    // If still no margins, show a generic message
+                    addResult(
+                        'warning',
+                        'Kenar Boşlukları',
+                        'Kenar boşlukları otomatik olarak kontrol edilemedi (Mac sürümü). Lütfen manuel olarak kontrol edin: Sayfa Düzeni > Kenar Boşlukları > Tüm kenarlar 3 cm olmalıdır.',
+                        `Bölüm ${i + 1}`,
+                        { type: 'margin', sectionIndex: i }
+                    );
+                    return;
+                } catch (altError) {
+                    console.log("Alternative margin check failed:", altError);
+                    addResult(
+                        'warning',
+                        'Kenar Boşlukları',
+                        'Kenar boşlukları kontrol edilemedi. Lütfen manuel olarak kontrol edin: Sayfa Düzeni > Kenar Boşlukları > 3 cm.',
+                        `Bölüm ${i + 1}`,
+                        { type: 'margin', sectionIndex: i }
+                    );
+                    return;
+                }
+            }
+
+            const tolerance = EBYÜ_RULES.MARGIN_TOLERANCE;
+            const expected = EBYÜ_RULES.MARGIN_POINTS;
+
+            let hasError = false;
+            let errorDetails = [];
+
+            if (Math.abs(margins.top - expected) > tolerance) {
+                hasError = true;
+                errorDetails.push(`Üst: ${(margins.top / 28.35).toFixed(2)} cm`);
+            }
+            if (Math.abs(margins.bottom - expected) > tolerance) {
+                hasError = true;
+                errorDetails.push(`Alt: ${(margins.bottom / 28.35).toFixed(2)} cm`);
+            }
+            if (Math.abs(margins.left - expected) > tolerance) {
+                hasError = true;
+                errorDetails.push(`Sol: ${(margins.left / 28.35).toFixed(2)} cm`);
+            }
+            if (Math.abs(margins.right - expected) > tolerance) {
+                hasError = true;
+                errorDetails.push(`Sağ: ${(margins.right / 28.35).toFixed(2)} cm`);
+            }
+
+            if (hasError) {
+                addResult(
+                    'error',
+                    'Kenar Boşluğu Hatası',
+                    `Kenar boşlukları 3 cm olmalıdır. Mevcut: ${errorDetails.join(', ')}`,
+                    `Bölüm ${i + 1}`,
+                    { type: 'margin', sectionIndex: i }
+                );
+            } else {
+                addResult(
+                    'success',
+                    'Kenar Boşlukları',
+                    'Tüm kenar boşlukları 3 cm kuralına uygun.',
+                    `Bölüm ${i + 1}`
+                );
+            }
         }
-        if (Math.abs(margins.bottom - expected) > tolerance) {
-            hasError = true;
-            errorDetails.push(`Alt: ${(margins.bottom / 28.35).toFixed(2)} cm`);
-        }
-        if (Math.abs(margins.left - expected) > tolerance) {
-            hasError = true;
-            errorDetails.push(`Sol: ${(margins.left / 28.35).toFixed(2)} cm`);
-        }
-        if (Math.abs(margins.right - expected) > tolerance) {
-            hasError = true;
-            errorDetails.push(`Sağ: ${(margins.right / 28.35).toFixed(2)} cm`);
-        }
-
-        if (hasError) {
-            addResult(
-                'error',
-                'Kenar Boşluğu Hatası',
-                `Kenar boşlukları 3 cm olmalıdır. Mevcut: ${errorDetails.join(', ')}`,
-                `Bölüm ${i + 1}`,
-                { type: 'margin', sectionIndex: i }
-            );
-        } else {
-            addResult(
-                'success',
-                'Kenar Boşlukları',
-                'Tüm kenar boşlukları 3 cm kuralına uygun.',
-                `Bölüm ${i + 1}`
-            );
-        }
+    } catch (error) {
+        console.error("Margin check error:", error);
+        addResult(
+            'warning',
+            'Kenar Boşlukları',
+            'Kenar boşlukları kontrol edilemedi. Lütfen manuel olarak kontrol edin: Sayfa Düzeni > Kenar Boşlukları > 3 cm.',
+            null,
+            { type: 'margin' }
+        );
     }
 }
 
@@ -510,12 +577,24 @@ async function checkTables(context) {
         sections.load("items");
         await context.sync();
 
-        let pageWidth = 595; // Default A4 width in points
+        let pageWidth = 595; // Default A4 width in points (425 usable after 3cm margins)
+        let pageWidthAvailable = 425; // Default usable width (A4 - 3cm margins each side)
+
         if (sections.items.length > 0) {
-            const pageSetup = sections.items[0].getPageSetup();
-            pageSetup.load("pageWidth, leftMargin, rightMargin");
-            await context.sync();
-            pageWidth = pageSetup.pageWidth - pageSetup.leftMargin - pageSetup.rightMargin;
+            try {
+                const section = sections.items[0];
+                if (typeof section.getPageSetup === 'function') {
+                    const pageSetup = section.getPageSetup();
+                    pageSetup.load("pageWidth, leftMargin, rightMargin");
+                    await context.sync();
+                    pageWidth = pageSetup.pageWidth;
+                    pageWidthAvailable = pageSetup.pageWidth - pageSetup.leftMargin - pageSetup.rightMargin;
+                }
+            } catch (pageSetupError) {
+                console.log("getPageSetup not available for table width check, using defaults");
+                // Use defaults: A4 (595pt) - 3cm margins (85pt each) = 425pt usable
+                pageWidthAvailable = 425;
+            }
         }
 
         for (let i = 0; i < tables.items.length; i++) {
@@ -749,12 +828,12 @@ async function checkTables(context) {
             // CHECK 5: Table Width (Must Fit Within Margins)
             // ================================================
             try {
-                if (table.width && table.width > pageWidth + 10) {
+                if (table.width && table.width > pageWidthAvailable + 10) {
                     widthErrors++;
                     addResult(
                         'error',
                         'Tablo Genişliği Hatası',
-                        `Tablo ${i + 1}: Tablo sayfa kenar boşluklarını aşıyor. Tablo genişliği: ${(table.width / 28.35).toFixed(2)} cm, Mevcut alan: ${(pageWidth / 28.35).toFixed(2)} cm`,
+                        `Tablo ${i + 1}: Tablo sayfa kenar boşluklarını aşıyor. Tablo genişliği: ${(table.width / 28.35).toFixed(2)} cm, Mevcut alan: ${(pageWidthAvailable / 28.35).toFixed(2)} cm`,
                         `Tablo ${i + 1}`,
                         { type: 'tableWidth', tableIndex: i }
                     );
