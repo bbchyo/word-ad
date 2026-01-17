@@ -61,7 +61,7 @@ const EBYÜ_RULES = {
 
     // Detection Thresholds
     BLOCK_QUOTE_MIN_INDENT_POINTS: 28, // ~1cm minimum to detect block quote
-    MIN_BODY_TEXT_LENGTH: 50,           // Minimum chars to consider as body text (reduced false positives)
+    MIN_BODY_TEXT_LENGTH: 100,          // Minimum chars to consider as body text (only check paragraphs >100 chars)
 };
 
 // Highlight Colors for Different Error Severities
@@ -1015,12 +1015,12 @@ async function checkTablesSimple(context) {
             // =============================================
             // CHECK 2: Table Alignment (MUST be Centered)
             // =============================================
-            if (tableAlignment !== Word.Alignment.centered) {
+            // TABLE ALIGNMENT: Only flag error if Left or Right aligned.
+            // If alignment is undefined, null, or Mixed/Unknown, ignore it.
+            if (tableAlignment === Word.Alignment.left || tableAlignment === Word.Alignment.right) {
                 alignmentErrors++;
 
-                const alignmentName = tableAlignment === Word.Alignment.left ? 'Sola Yaslı' :
-                    tableAlignment === Word.Alignment.right ? 'Sağa Yaslı' :
-                        tableAlignment === Word.Alignment.justified ? 'İki Yana Yaslı' : 'Bilinmeyen';
+                const alignmentName = tableAlignment === Word.Alignment.left ? 'Sola Yaslı' : 'Sağa Yaslı';
 
                 const errorInfo = {
                     type: 'alignment',
@@ -1625,6 +1625,10 @@ async function fixParagraph(index, targetType = null) {
             const paraType = targetType || detectParagraphType(para, text, style, font, isInBibliographyZone);
 
             switch (paraType) {
+                case PARA_TYPES.GHOST_HEADING:
+                    para.delete();
+                    break;
+
                 case PARA_TYPES.BODY_TEXT:
                     // Apply body text formatting
                     para.font.name = EBYÜ_RULES.FONT_NAME;
