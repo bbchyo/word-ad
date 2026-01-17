@@ -61,7 +61,7 @@ const EBYÜ_RULES = {
 
     // Detection Thresholds
     BLOCK_QUOTE_MIN_INDENT_POINTS: 28, // ~1cm minimum to detect block quote
-    MIN_BODY_TEXT_LENGTH: 30,           // Minimum chars to consider as body text
+    MIN_BODY_TEXT_LENGTH: 50,           // Minimum chars to consider as body text (reduced false positives)
 };
 
 // Highlight Colors for Different Error Severities
@@ -147,8 +147,8 @@ const PATTERNS = {
     ],
 
     // TOC patterns
-    TOC_STYLE: [/^TOC/i, /İçindekiler/i],
-    TOC_CONTENT: /\.{3,}/   // Lines with multiple dots
+    TOC_STYLE: [/^TOC/i, /^İçindekiler/i, /^Table of Contents/i],
+    TOC_CONTENT: /\.{4,}\s*\d+$/   // Dots followed by number (page number)
 };
 
 // ============================================
@@ -187,14 +187,19 @@ function isHeadingStyle(style) {
  */
 function isTOCEntry(style, text) {
     if (!style && !text) return false;
+    const trimmed = (text || '').trim();
 
     // Style-based detection
     if (style) {
-        if (PATTERNS.TOC_STYLE.some(p => p.test(style))) return true;
+        if (PATTERNS.TOC_STYLE.some(p => p.test(style.trim()))) return true;
     }
 
-    // Content-based detection (multiple dots)
-    if (text && PATTERNS.TOC_CONTENT.test(text)) return true;
+    // Pattern-based detection
+    // 1. Check for dots followed by page number (TOC_CONTENT)
+    if (PATTERNS.TOC_CONTENT.test(trimmed)) return true;
+
+    // 2. Check if it ends with a number (common for TOC entries without dots)
+    if (/\d+$/.test(trimmed) && (style || '').toLowerCase().startsWith('toc')) return true;
 
     return false;
 }
@@ -542,10 +547,10 @@ function validateBodyText(para, font, text, index) {
 
     // Skip centered text (likely headings, captions, etc.)
     if (para.alignment === Word.Alignment.centered) {
-        return errors; // Not body text
+        return errors;
     }
 
-    // Skip if too short to be body text
+    // Skip if too short to be body text (EBYÜ Rules: MIN_BODY_TEXT_LENGTH is 50)
     if (trimmed.length < EBYÜ_RULES.MIN_BODY_TEXT_LENGTH) {
         return errors;
     }
@@ -557,7 +562,7 @@ function validateBodyText(para, font, text, index) {
 
     // Skip if it looks like a heading (numbered pattern at start)
     if (/^\d+\.\d*/.test(trimmed) && font.bold === true) {
-        return errors; // This is a sub-heading, not body text
+        return errors;
     }
 
     // =============================================
@@ -576,14 +581,18 @@ function validateBodyText(para, font, text, index) {
     }
 
     // Must be 12pt
-    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_BODY) > 0.5) {
-        errors.push({
-            type: 'warning',
-            title: 'Gövde Metin: Punto Hatası',
-            description: `12 punto (pt) olmalı. Mevcut: ${font.size} pt`,
-            severity: 'FORMAT',
-            paraIndex: index
-        });
+    // FIX: If font.size is null/undefined, it means mixed formatting (footnotes, bold, etc.)
+    // In this case, we DO NOT flag it as an error to avoid false positives.
+    if (font.size !== null && font.size !== undefined) {
+        if (Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_BODY) > 0.5) {
+            errors.push({
+                type: 'warning',
+                title: 'Gövde Metin: Punto Hatası',
+                description: `12 punto (pt) olmalı. Mevcut: ${font.size} pt`,
+                severity: 'FORMAT',
+                paraIndex: index
+            });
+        }
     }
 
     // Must be Justified
@@ -604,8 +613,8 @@ function validateBodyText(para, font, text, index) {
     const expectedIndent = EBYÜ_RULES.FIRST_LINE_INDENT_POINTS; // 35.4pt
     const diff = Math.abs(firstIndent - expectedIndent);
 
-    // Strict check: Must be within 2pt of 35.4pt
-    if (diff > 2) {
+    // Strict check: Must be within tolerance (default 2pt)
+    if (diff > EBYÜ_RULES.INDENT_TOLERANCE) {
         errors.push({
             type: 'warning',
             title: 'Gövde Metin: Girinti Hatası',
@@ -618,8 +627,6 @@ function validateBodyText(para, font, text, index) {
     // Check line spacing (should be 1.5 lines ≈ 18pt for 12pt font)
     const lineSpacing = para.lineSpacing;
     if (lineSpacing && lineSpacing > 0) {
-        // 1.5 line spacing for 12pt font ≈ 18pt
-        // Allow range 17-20pt as valid
         const isValid15 = (lineSpacing >= 16 && lineSpacing <= 21);
         if (!isValid15 && lineSpacing < 16) {
             errors.push({
@@ -634,7 +641,6 @@ function validateBodyText(para, font, text, index) {
 
     // Check paragraph spacing (6nk before/after)
     const spaceAfter = para.spaceAfter || 0;
-
     if (spaceAfter > 12) {
         errors.push({
             type: 'warning',
