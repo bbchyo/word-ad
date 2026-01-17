@@ -92,6 +92,8 @@ const PARA_TYPES = {
 
 const ZONES = {
     FRONT_MATTER: 'FRONT_MATTER',
+    ABSTRACT_TR: 'ABSTRACT_TR',
+    ABSTRACT_EN: 'ABSTRACT_EN',
     BODY: 'BODY',
     BACK_MATTER: 'BACK_MATTER'
 };
@@ -528,9 +530,39 @@ function validateSubHeading(para, font, text, index) {
 /**
  * Validate Body Text (Zone 2)
  * Rules: Times New Roman, 12pt, Justified, First Line Indent 1.25cm, 1.5 line spacing
+ * IMPORTANT: Only validates actual body text, NOT headings, centered text, or list items
  */
 function validateBodyText(para, font, text, index) {
     const errors = [];
+    const trimmed = (text || '').trim();
+
+    // =============================================
+    // FILTER: Skip paragraphs that are NOT body text
+    // =============================================
+
+    // Skip centered text (likely headings, captions, etc.)
+    if (para.alignment === Word.Alignment.centered) {
+        return errors; // Not body text
+    }
+
+    // Skip if too short to be body text
+    if (trimmed.length < EBYÜ_RULES.MIN_BODY_TEXT_LENGTH) {
+        return errors;
+    }
+
+    // Skip list items (they have different formatting rules)
+    if (para.listItemOrNull !== null && para.listItemOrNull !== undefined) {
+        return errors;
+    }
+
+    // Skip if it looks like a heading (numbered pattern at start)
+    if (/^\d+\.\d*/.test(trimmed) && font.bold === true) {
+        return errors; // This is a sub-heading, not body text
+    }
+
+    // =============================================
+    // ACTUAL BODY TEXT VALIDATION
+    // =============================================
 
     // Must be Times New Roman
     if (font.name && font.name !== EBYÜ_RULES.FONT_NAME && font.name !== "Times New Roman") {
@@ -565,23 +597,22 @@ function validateBodyText(para, font, text, index) {
         });
     }
 
-    // Must have First Line Indent of 1.25cm (~35.4pt)
+    // =============================================
+    // FIRST LINE INDENT CHECK - STRICT (1.25cm = 35.4pt)
+    // =============================================
     const firstIndent = para.firstLineIndent || 0;
-    // Only check if paragraph is long enough (not a short intro line)
-    if ((text || '').trim().length > 50) {
-        const expectedIndent = EBYÜ_RULES.FIRST_LINE_INDENT_POINTS;
-        const diff = Math.abs(firstIndent - expectedIndent);
+    const expectedIndent = EBYÜ_RULES.FIRST_LINE_INDENT_POINTS; // 35.4pt
+    const diff = Math.abs(firstIndent - expectedIndent);
 
-        // If indent is 0 or significantly different, flag it
-        if (firstIndent < 5 || diff > EBYÜ_RULES.INDENT_TOLERANCE) {
-            errors.push({
-                type: 'warning',
-                title: 'Gövde Metin: Girinti Hatası',
-                description: `İlk satır girintisi 1.25 cm olmalı. Mevcut: ${(firstIndent / 28.35).toFixed(2)} cm`,
-                severity: 'FORMAT',
-                paraIndex: index
-            });
-        }
+    // Strict check: Must be within 2pt of 35.4pt
+    if (diff > 2) {
+        errors.push({
+            type: 'warning',
+            title: 'Gövde Metin: Girinti Hatası',
+            description: `İlk satır girintisi 1.25 cm (35.4 pt) olmalı. Mevcut: ${firstIndent.toFixed(1)} pt (${(firstIndent / 28.35).toFixed(2)} cm)`,
+            severity: 'FORMAT',
+            paraIndex: index
+        });
     }
 
     // Check line spacing (should be 1.5 lines ≈ 18pt for 12pt font)
@@ -602,17 +633,7 @@ function validateBodyText(para, font, text, index) {
     }
 
     // Check paragraph spacing (6nk before/after)
-    const spaceBefore = para.spaceBefore || 0;
     const spaceAfter = para.spaceAfter || 0;
-    const expectedSpacing = EBYÜ_RULES.SPACING_BODY;
-    const tolerance = EBYÜ_RULES.SPACING_TOLERANCE;
-
-    // Only flag if spacing is 0 or excessively large (>12pt)
-    // This avoids too many false positives for paragraphs without explicit spacing
-    if (spaceBefore === 0 && (text || '').trim().length > 100) {
-        // Only warn for substantial paragraphs without any spacing
-        // Skip this for now to reduce noise - can be enabled for strict mode
-    }
 
     if (spaceAfter > 12) {
         errors.push({
@@ -838,73 +859,106 @@ async function clearHighlights() {
 
 // ============================================
 // MARGIN CHECK (with Mac error handling)
+// Mac compatibility: Do NOT stop the scan if margin check fails
 // ============================================
 
 async function checkMargins(context, sections) {
     try {
+        // Ensure sections are loaded
+        if (!sections || !sections.items || sections.items.length === 0) {
+            logStep('MARGIN', 'No sections found, skipping margin check');
+            addResult('warning', 'Kenar Boşlukları (Manuel Kontrol)',
+                'Bölüm bilgisi yüklenemedi. Lütfen manuel kontrol edin: Sayfa Düzeni → Kenar Boşlukları → Tümü 3 cm olmalı.');
+            return; // Do NOT throw, just return
+        }
+
         for (let i = 0; i < sections.items.length; i++) {
             const section = sections.items[i];
             try {
-                // Mac may not support getPageSetup
-                if (typeof section.getPageSetup === 'function') {
-                    const pageSetup = section.getPageSetup();
-                    pageSetup.load("topMargin, bottomMargin, leftMargin, rightMargin");
+                // Mac may not support getPageSetup - check if function exists
+                if (typeof section.getPageSetup !== 'function') {
+                    logStep('MARGIN', 'getPageSetup not available on this platform');
+                    continue;
+                }
+
+                const pageSetup = section.getPageSetup();
+                pageSetup.load("topMargin, bottomMargin, leftMargin, rightMargin");
+
+                try {
                     await context.sync();
+                } catch (syncError) {
+                    // Sync failed (common on Mac), log and continue
+                    logStep('MARGIN', `Sync failed for section ${i + 1}: ${syncError.message}`);
+                    continue;
+                }
 
-                    const tolerance = EBYÜ_RULES.MARGIN_TOLERANCE;
-                    const expected = EBYÜ_RULES.MARGIN_POINTS;
-                    let hasError = false;
-                    let errorDetails = [];
+                const tolerance = EBYÜ_RULES.MARGIN_TOLERANCE;
+                const expected = EBYÜ_RULES.MARGIN_POINTS;
+                let hasError = false;
+                let errorDetails = [];
 
-                    const margins = [
-                        { name: 'Üst', value: pageSetup.topMargin },
-                        { name: 'Alt', value: pageSetup.bottomMargin },
-                        { name: 'Sol', value: pageSetup.leftMargin },
-                        { name: 'Sağ', value: pageSetup.rightMargin }
-                    ];
+                const margins = [
+                    { name: 'Üst', value: pageSetup.topMargin },
+                    { name: 'Alt', value: pageSetup.bottomMargin },
+                    { name: 'Sol', value: pageSetup.leftMargin },
+                    { name: 'Sağ', value: pageSetup.rightMargin }
+                ];
 
-                    for (const margin of margins) {
+                for (const margin of margins) {
+                    // Check if margin value is valid (not NaN or undefined)
+                    if (margin.value !== undefined && !isNaN(margin.value)) {
                         if (Math.abs(margin.value - expected) > tolerance) {
                             hasError = true;
                             errorDetails.push(`${margin.name}: ${(margin.value / 28.35).toFixed(2)} cm`);
                         }
                     }
-
-                    if (hasError) {
-                        addResult('error', 'Kenar Boşluğu Hatası - KRİTİK',
-                            `TÜMÜ 3 cm olmalı. Hatalı kenarlar: ${errorDetails.join(', ')}`,
-                            `Bölüm ${i + 1}`, null, undefined, 'CRITICAL');
-                    } else {
-                        addResult('success', 'Kenar Boşlukları',
-                            'Tüm kenarlar 3 cm kuralına uygun. ✓');
-                    }
-                    return; // Only check first section
                 }
-            } catch (e) {
-                // getPageSetup not available (Mac compatibility)
-                logStep('MARGIN', `getPageSetup not available: ${e.message}`);
+
+                if (hasError) {
+                    addResult('error', 'Kenar Boşluğu Hatası - KRİTİK',
+                        `TÜMÜ 3 cm olmalı. Hatalı kenarlar: ${errorDetails.join(', ')}`,
+                        `Bölüm ${i + 1}`, null, undefined, 'CRITICAL');
+                } else {
+                    addResult('success', 'Kenar Boşlukları',
+                        'Tüm kenarlar 3 cm kuralına uygun. ✓');
+                }
+                return; // Only check first section
+
+            } catch (sectionError) {
+                // Individual section error, log and continue to next section
+                logStep('MARGIN', `Section ${i + 1} error: ${sectionError.message}`);
+                continue;
             }
         }
 
-        // Fallback for Mac or if getPageSetup fails
+        // Fallback for Mac or if getPageSetup fails for all sections
         addResult('warning', 'Kenar Boşlukları (Manuel Kontrol)',
-            'Otomatik kontrol yapılamadı (Mac). Lütfen manuel kontrol edin: Sayfa Düzeni → Kenar Boşlukları → Tümü 3 cm olmalı.');
+            'Otomatik kontrol yapılamadı (Mac uyumluluk). Lütfen manuel kontrol edin: Sayfa Düzeni → Kenar Boşlukları → Tümü 3 cm olmalı.');
 
     } catch (error) {
+        // Catch-all: Log error but do NOT stop the scan
+        logStep('MARGIN', `Margin check failed: ${error.message}`);
         addResult('warning', 'Kenar Boşlukları',
             `Kontrol hatası: ${error.message}. Manuel kontrol önerilir.`);
+        // Do NOT re-throw - let the scan continue
     }
 }
 
 // ============================================
-// TABLE WIDTH CHECK
+// TABLE VALIDATION (Width, Alignment, Highlighting)
 // ============================================
 
+// Global storage for table errors to enable "SHOW" button
+let tableErrors = [];
+
 /**
- * Check if tables fit within page margins
+ * Check if tables fit within page margins AND are properly aligned
  * A4 width (595pt) - 2*3cm margins (170pt) ≈ 425pt max width
+ * Tables MUST be centered
  */
 async function checkTablesSimple(context) {
+    tableErrors = []; // Reset
+
     try {
         const tables = context.document.body.tables;
         tables.load("items");
@@ -915,43 +969,84 @@ async function checkTablesSimple(context) {
             return;
         }
 
-        // Load table properties
+        // Load table properties including alignment
         for (let i = 0; i < tables.items.length; i++) {
-            tables.items[i].load("rowCount, width");
+            tables.items[i].load("rowCount, width, alignment");
         }
         await context.sync();
 
         let widthErrors = 0;
+        let alignmentErrors = 0;
         const maxWidth = EBYÜ_RULES.TABLE_MAX_WIDTH_POINTS;
 
         for (let i = 0; i < tables.items.length; i++) {
             const table = tables.items[i];
             const tableWidth = table.width || 0;
+            const tableAlignment = table.alignment;
 
+            // =============================================
+            // CHECK 1: Table Width
+            // =============================================
             if (tableWidth > maxWidth + 10) { // Allow 10pt tolerance
                 widthErrors++;
 
-                // Try to highlight the table content
-                try {
-                    const firstCell = table.getCell(0, 0);
-                    firstCell.body.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
-                } catch (e) {
-                    // Cell access may fail, just log error
-                    logStep('TABLE', `Could not highlight table ${i + 1}: ${e.message}`);
-                }
+                const errorInfo = {
+                    type: 'width',
+                    tableIndex: i,
+                    message: `Tablo ${i + 1} sayfa sınırlarını aşıyor. Genişlik: ${(tableWidth / 28.35).toFixed(2)} cm (Max: ${(maxWidth / 28.35).toFixed(2)} cm)`
+                };
+                tableErrors.push(errorInfo);
 
                 addResult('error', 'Tablo Genişliği Hatası',
-                    `Tablo ${i + 1} sayfa sınırlarını aşıyor. Genişlik: ${(tableWidth / 28.35).toFixed(2)} cm (Max: ${(maxWidth / 28.35).toFixed(2)} cm)`,
-                    `Tablo ${i + 1} (${table.rowCount} satır)`, null, undefined, 'FORMAT');
+                    errorInfo.message,
+                    `Tablo ${i + 1} (${table.rowCount} satır)`,
+                    null,
+                    undefined, // paraIndex is undefined for tables
+                    'FORMAT',
+                    { isTable: true, tableIndex: i }); // Custom data for table
+            }
+
+            // =============================================
+            // CHECK 2: Table Alignment (MUST be Centered)
+            // =============================================
+            if (tableAlignment !== Word.Alignment.centered) {
+                alignmentErrors++;
+
+                const alignmentName = tableAlignment === Word.Alignment.left ? 'Sola Yaslı' :
+                    tableAlignment === Word.Alignment.right ? 'Sağa Yaslı' :
+                        tableAlignment === Word.Alignment.justified ? 'İki Yana Yaslı' : 'Bilinmeyen';
+
+                const errorInfo = {
+                    type: 'alignment',
+                    tableIndex: i,
+                    message: `Tablo ${i + 1} ORTALANMALI (Centered). Mevcut: ${alignmentName}`
+                };
+                tableErrors.push(errorInfo);
+
+                addResult('error', 'Tablo Hizalama Hatası',
+                    errorInfo.message,
+                    `Tablo ${i + 1} (${table.rowCount} satır)`,
+                    null,
+                    undefined,
+                    'FORMAT',
+                    { isTable: true, tableIndex: i });
             }
         }
 
-        if (widthErrors === 0) {
+        // Summary
+        const totalErrors = widthErrors + alignmentErrors;
+        if (totalErrors === 0) {
             addResult('success', 'Tablolar',
-                `${tables.items.length} tablo kontrol edildi, tümü sayfa sınırları içinde. ✓`);
+                `${tables.items.length} tablo kontrol edildi, tümü kurallara uygun. ✓`);
         } else {
-            addResult('warning', 'Tablo Genişliği Özeti',
-                `${widthErrors}/${tables.items.length} tablo sayfa sınırlarını aşıyor.`);
+            if (widthErrors > 0) {
+                addResult('warning', 'Tablo Genişliği Özeti',
+                    `${widthErrors}/${tables.items.length} tablo sayfa sınırlarını aşıyor.`);
+            }
+            if (alignmentErrors > 0) {
+                addResult('warning', 'Tablo Hizalama Özeti',
+                    `${alignmentErrors}/${tables.items.length} tablo ortalanmamış.`);
+            }
         }
 
     } catch (error) {
@@ -959,6 +1054,40 @@ async function checkTablesSimple(context) {
             `Tablo kontrolü hatası: ${error.message}`);
     }
 }
+
+/**
+ * Highlight and select a specific table by index
+ * This is called from the "SHOW" button for table errors
+ * @param {number} tableIndex - Index of the table to highlight
+ */
+async function highlightTable(tableIndex) {
+    try {
+        await Word.run(async (context) => {
+            const tables = context.document.body.tables;
+            tables.load("items");
+            await context.sync();
+
+            if (tableIndex >= 0 && tableIndex < tables.items.length) {
+                const table = tables.items[tableIndex];
+
+                // Select the entire table - this scrolls to it and highlights it
+                table.select();
+                await context.sync();
+
+                logStep('TABLE', `Selected and scrolled to table ${tableIndex + 1}`);
+            } else {
+                console.log(`Invalid table index: ${tableIndex}`);
+            }
+        });
+    } catch (error) {
+        console.log("Table highlight error:", error.message);
+        // Fallback: try to at least log the error
+        logStep('TABLE', `Could not highlight table ${tableIndex + 1}: ${error.message}`);
+    }
+}
+
+// Expose highlightTable globally for button onclick
+window.highlightTable = highlightTable;
 
 // ============================================
 // MAIN SCAN FUNCTION - ZONE-BASED VALIDATION
@@ -1019,10 +1148,14 @@ async function scanDocument() {
 
             // =============================================
             // ZONE-BASED STATE MACHINE LOOP
+            // Includes Abstract zones with word count tracking
             // =============================================
             let currentZone = ZONES.FRONT_MATTER;
+            let abstractWordCountTR = 0;  // Word count for Turkish Abstract (ÖZET)
+            let abstractWordCountEN = 0;  // Word count for English Abstract (ABSTRACT)
+
             let stats = {
-                zones: { frontMatter: 0, body: 0, backMatter: 0 },
+                zones: { frontMatter: 0, abstractTR: 0, abstractEN: 0, body: 0, backMatter: 0 },
                 types: {
                     mainHeading: 0,
                     subHeading: 0,
@@ -1049,13 +1182,65 @@ async function scanDocument() {
                 const font = para.font;
 
                 // =============================================
-                // ZONE SWITCHING LOGIC
+                // ZONE SWITCHING LOGIC (with Abstract tracking)
                 // =============================================
 
-                // Check for switch to BODY zone
-                if (currentZone === ZONES.FRONT_MATTER) {
+                const previousZone = currentZone;
+
+                // Check for Turkish Abstract (ÖZET)
+                if (currentZone === ZONES.FRONT_MATTER && /^ÖZET$/i.test(trimmed)) {
+                    currentZone = ZONES.ABSTRACT_TR;
+                    abstractWordCountTR = 0;
+                    logStep('ZONE', `→ ABSTRACT_TR at paragraph ${i + 1}: "${trimmed}"`);
+                }
+
+                // Check for English Abstract (ABSTRACT)
+                if ((currentZone === ZONES.FRONT_MATTER || currentZone === ZONES.ABSTRACT_TR) && /^ABSTRACT$/i.test(trimmed)) {
+                    // If we were in Turkish Abstract and NOT already validated (via Anahtar Kelimeler)
+                    if (previousZone === ZONES.ABSTRACT_TR && abstractWordCountTR > 0) {
+                        // Fallback validation if no "Anahtar Kelimeler" was found
+                        if (abstractWordCountTR < 200 || abstractWordCountTR > 250) {
+                            addResult('warning', 'Türkçe Özet: Kelime Sayısı Uyarısı',
+                                `ÖZET bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountTR} kelime`,
+                                'ÖZET Bölümü', null, undefined, 'FORMAT');
+                        } else {
+                            addResult('success', 'Türkçe Özet: Kelime Sayısı',
+                                `ÖZET bölümü ${abstractWordCountTR} kelime - kurala uygun (200-250). ✓`);
+                        }
+                    }
+                    currentZone = ZONES.ABSTRACT_EN;
+                    abstractWordCountEN = 0;
+                    logStep('ZONE', `→ ABSTRACT_EN at paragraph ${i + 1}: "${trimmed}"`);
+                }
+
+                // Check for switch to BODY zone (GİRİŞ or BÖLÜM starts body)
+                if (currentZone === ZONES.FRONT_MATTER || currentZone === ZONES.ABSTRACT_TR || currentZone === ZONES.ABSTRACT_EN) {
                     if (matchesAnyPattern(trimmed, PATTERNS.BODY_START) &&
                         (font.bold === true || (font.size && font.size >= 13))) {
+
+                        // Fallback validation if no "Anahtar Kelimeler" / "Keywords" was found
+                        // Only validate if count > 0 (not -1 which means already validated)
+                        if (previousZone === ZONES.ABSTRACT_TR && abstractWordCountTR > 0) {
+                            if (abstractWordCountTR < 200 || abstractWordCountTR > 250) {
+                                addResult('warning', 'Türkçe Özet: Kelime Sayısı Uyarısı',
+                                    `ÖZET bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountTR} kelime`,
+                                    'ÖZET Bölümü', null, undefined, 'FORMAT');
+                            } else {
+                                addResult('success', 'Türkçe Özet: Kelime Sayısı',
+                                    `ÖZET bölümü ${abstractWordCountTR} kelime - kurala uygun (200-250). ✓`);
+                            }
+                        }
+                        if (previousZone === ZONES.ABSTRACT_EN && abstractWordCountEN > 0) {
+                            if (abstractWordCountEN < 200 || abstractWordCountEN > 250) {
+                                addResult('warning', 'İngilizce Abstract: Kelime Sayısı Uyarısı',
+                                    `ABSTRACT bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountEN} kelime`,
+                                    'ABSTRACT Bölümü', null, undefined, 'FORMAT');
+                            } else {
+                                addResult('success', 'İngilizce Abstract: Kelime Sayısı',
+                                    `ABSTRACT bölümü ${abstractWordCountEN} kelime - kurala uygun (200-250). ✓`);
+                            }
+                        }
+
                         currentZone = ZONES.BODY;
                         isInBibliographyZone = false;
                         logStep('ZONE', `→ BODY at paragraph ${i + 1}: "${trimmed.substring(0, 40)}"`);
@@ -1078,9 +1263,77 @@ async function scanDocument() {
                     logStep('ZONE', `→ APPENDIX at paragraph ${i + 1}`);
                 }
 
+                // =============================================
+                // ABSTRACT WORD COUNT ACCUMULATION
+                // Stop counting at "Anahtar Kelimeler" (TR) or "Keywords" (EN)
+                // =============================================
+
+                // Pattern to detect Turkish keywords section
+                const isAnahtarKelimeler = /^anahtar\s*(kelimeler|sözcükler)\s*[:.]?/i.test(trimmed);
+                // Pattern to detect English keywords section  
+                const isKeywords = /^key\s*words?\s*[:.]?/i.test(trimmed);
+
+                // Turkish Abstract word counting
+                if (currentZone === ZONES.ABSTRACT_TR && trimmed.length > 0) {
+                    // Skip the "ÖZET" heading itself
+                    if (/^ÖZET$/i.test(trimmed)) {
+                        // Don't count the title
+                    }
+                    // Check if we hit "Anahtar Kelimeler" - validate and stop counting
+                    else if (isAnahtarKelimeler) {
+                        logStep('ABSTRACT', `TR Abstract ended at "Anahtar Kelimeler" with ${abstractWordCountTR} words`);
+                        // Validate word count
+                        if (abstractWordCountTR < 200 || abstractWordCountTR > 250) {
+                            addResult('warning', 'Türkçe Özet: Kelime Sayısı Uyarısı',
+                                `ÖZET bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountTR} kelime`,
+                                'ÖZET Bölümü', null, undefined, 'FORMAT');
+                        } else {
+                            addResult('success', 'Türkçe Özet: Kelime Sayısı',
+                                `ÖZET bölümü ${abstractWordCountTR} kelime - kurala uygun (200-250). ✓`);
+                        }
+                        // Mark as validated so we don't validate again on zone switch
+                        abstractWordCountTR = -1; // Use -1 as a flag for "already validated"
+                    }
+                    // Normal paragraph - count words
+                    else if (abstractWordCountTR >= 0) {
+                        const words = trimmed.split(/\s+/).filter(w => w.length > 0).length;
+                        abstractWordCountTR += words;
+                    }
+                }
+
+                // English Abstract word counting
+                if (currentZone === ZONES.ABSTRACT_EN && trimmed.length > 0) {
+                    // Skip the "ABSTRACT" heading itself
+                    if (/^ABSTRACT$/i.test(trimmed)) {
+                        // Don't count the title
+                    }
+                    // Check if we hit "Keywords" - validate and stop counting
+                    else if (isKeywords) {
+                        logStep('ABSTRACT', `EN Abstract ended at "Keywords" with ${abstractWordCountEN} words`);
+                        // Validate word count
+                        if (abstractWordCountEN < 200 || abstractWordCountEN > 250) {
+                            addResult('warning', 'İngilizce Abstract: Kelime Sayısı Uyarısı',
+                                `ABSTRACT bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountEN} kelime`,
+                                'ABSTRACT Bölümü', null, undefined, 'FORMAT');
+                        } else {
+                            addResult('success', 'İngilizce Abstract: Kelime Sayısı',
+                                `ABSTRACT bölümü ${abstractWordCountEN} kelime - kurala uygun (200-250). ✓`);
+                        }
+                        // Mark as validated
+                        abstractWordCountEN = -1;
+                    }
+                    // Normal paragraph - count words
+                    else if (abstractWordCountEN >= 0) {
+                        const words = trimmed.split(/\s+/).filter(w => w.length > 0).length;
+                        abstractWordCountEN += words;
+                    }
+                }
+
                 // Update zone stats
                 switch (currentZone) {
                     case ZONES.FRONT_MATTER: stats.zones.frontMatter++; break;
+                    case ZONES.ABSTRACT_TR: stats.zones.abstractTR++; break;
+                    case ZONES.ABSTRACT_EN: stats.zones.abstractEN++; break;
                     case ZONES.BODY: stats.zones.body++; break;
                     case ZONES.BACK_MATTER: stats.zones.backMatter++; break;
                 }
@@ -1116,6 +1369,11 @@ async function scanDocument() {
 
                 // Skip front matter paragraphs (except ghost headings)
                 if (currentZone === ZONES.FRONT_MATTER && paraType !== PARA_TYPES.GHOST_HEADING) {
+                    continue;
+                }
+
+                // Skip abstract zone paragraphs (word count is handled separately)
+                if (currentZone === ZONES.ABSTRACT_TR || currentZone === ZONES.ABSTRACT_EN) {
                     continue;
                 }
 
@@ -1224,9 +1482,31 @@ async function scanDocument() {
                 }
             }
 
+            // Validate any remaining abstract word counts (if document ended in abstract)
+            if (currentZone === ZONES.ABSTRACT_TR && abstractWordCountTR > 0) {
+                if (abstractWordCountTR < 200 || abstractWordCountTR > 250) {
+                    addResult('warning', 'Türkçe Özet: Kelime Sayısı Uyarısı',
+                        `ÖZET bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountTR} kelime`,
+                        'ÖZET Bölümü', null, undefined, 'FORMAT');
+                } else {
+                    addResult('success', 'Türkçe Özet: Kelime Sayısı',
+                        `ÖZET bölümü ${abstractWordCountTR} kelime - kurala uygun (200-250). ✓`);
+                }
+            }
+            if (currentZone === ZONES.ABSTRACT_EN && abstractWordCountEN > 0) {
+                if (abstractWordCountEN < 200 || abstractWordCountEN > 250) {
+                    addResult('warning', 'İngilizce Abstract: Kelime Sayısı Uyarısı',
+                        `ABSTRACT bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountEN} kelime`,
+                        'ABSTRACT Bölümü', null, undefined, 'FORMAT');
+                } else {
+                    addResult('success', 'İngilizce Abstract: Kelime Sayısı',
+                        `ABSTRACT bölümü ${abstractWordCountEN} kelime - kurala uygun (200-250). ✓`);
+                }
+            }
+
             // Add zone analysis summary
             addResult('success', 'Bölge Analizi Tamamlandı',
-                `📊 Ön Kısım: ${stats.zones.frontMatter} | Ana Metin: ${stats.zones.body} | Kaynakça/Ekler: ${stats.zones.backMatter} paragraf`);
+                `📊 Ön Kısım: ${stats.zones.frontMatter} | Özet (TR): ${stats.zones.abstractTR} | Abstract (EN): ${stats.zones.abstractEN} | Ana Metin: ${stats.zones.body} | Kaynakça/Ekler: ${stats.zones.backMatter} paragraf`);
 
             // Add type breakdown
             const typeBreakdown = [];
@@ -1420,8 +1700,8 @@ async function fixParagraph(index, targetType = null) {
 // UI HELPER FUNCTIONS
 // ============================================
 
-function addResult(type, title, description, location = null, fixData = null, paraIndex = undefined, severity = null) {
-    validationResults.push({ type, title, description, location, fixData, paraIndex, severity });
+function addResult(type, title, description, location = null, fixData = null, paraIndex = undefined, severity = null, customData = null) {
+    validationResults.push({ type, title, description, location, fixData, paraIndex, severity, customData });
 }
 
 function displayResults() {
@@ -1462,8 +1742,18 @@ function renderFilteredResults() {
 
 function createResultItemHTML(result) {
     const icon = getIconSVG(result.type);
-    const showBtn = result.paraIndex !== undefined ?
-        `<button class="show-button" onclick="highlightParagraph(${result.paraIndex})">📍 GÖSTER</button>` : '';
+
+    // Determine the correct "SHOW" button based on whether it's a table or paragraph
+    let showBtn = '';
+    if (result.customData && result.customData.isTable) {
+        // Table-specific show button uses highlightTable()
+        showBtn = `<button class="show-button" onclick="highlightTable(${result.customData.tableIndex})">📍 GÖSTER</button>`;
+    } else if (result.paraIndex !== undefined) {
+        // Paragraph-specific show button
+        showBtn = `<button class="show-button" onclick="highlightParagraph(${result.paraIndex})">📍 GÖSTER</button>`;
+    }
+
+    // Fix button only for paragraph errors (not tables)
     const fixBtn = result.paraIndex !== undefined && (result.type === 'error' || result.type === 'warning') ?
         `<button class="fix-button" onclick="fixParagraph(${result.paraIndex})" title="Otomatik düzelt">🔧</button>` : '';
 
