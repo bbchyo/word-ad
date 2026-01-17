@@ -416,6 +416,109 @@ body {
     color: white;
 }
 
+/* Severity Badge for Critical Errors */
+.severity-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-radius: 4px;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+.severity-badge.critical {
+    background: var(--error-color);
+    color: white;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.7;
+    }
+}
+
+/* Zone-type indicator badges */
+.zone-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    border-radius: 3px;
+    margin-left: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+}
+
+.zone-badge.heading {
+    background: #ede9fe;
+    color: #7c3aed;
+    border-color: #c4b5fd;
+}
+
+.zone-badge.body {
+    background: #e0f2fe;
+    color: #0284c7;
+    border-color: #7dd3fc;
+}
+
+.zone-badge.quote {
+    background: #fef3c7;
+    color: #d97706;
+    border-color: #fcd34d;
+}
+
+.zone-badge.biblio {
+    background: #dcfce7;
+    color: #16a34a;
+    border-color: #86efac;
+}
+
+.zone-badge.caption {
+    background: #fce7f3;
+    color: #db2777;
+    border-color: #f9a8d4;
+}
+
+/* Fix button improvements */
+.fix-button {
+    background: var(--success-bg);
+    color: var(--success-color);
+    border: 1px solid var(--success-border);
+    min-width: 32px;
+    justify-content: center;
+}
+
+.fix-button:hover {
+    background: var(--success-color);
+    color: white;
+    transform: scale(1.05);
+}
+
+/* Result item hover effect */
+.result-item:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateX(2px);
+    transition: all var(--transition-fast);
+}
+
+/* Critical error special styling */
+.result-item.error.critical {
+    border-left-width: 6px;
+    background: linear-gradient(90deg, var(--error-bg), var(--bg-primary));
+}
+
 .footer {
     padding: var(--spacing-md);
     text-align: center;
