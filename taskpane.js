@@ -35,33 +35,33 @@ const EBYÜ_RULES = {
     FONT_SIZE_BLOCK_QUOTE: 11,
     FONT_SIZE_FOOTNOTE: 10,
     FONT_SIZE_TABLE: 11,
-    FONT_SIZE_CAPTION: 11,
+    FONT_SIZE_CAPTION_TITLE: 12,    // Caption başlığı 12pt
+    FONT_SIZE_CAPTION_CONTENT: 11,  // Tablo/Şekil içi açıklamalar 11pt
+    FONT_SIZE_COVER_TITLE: 16,      // Kapak başlıkları 16pt
+    FONT_SIZE_EPIGRAPH: 11,         // Epigraf 11pt
 
     // Line Spacing
-    LINE_SPACING_BODY: 1.5,      // 1.5 lines ≈ 18pt for 12pt font
-    LINE_SPACING_SINGLE: 1.0,   // Single ≈ 12pt for 12pt font
-    LINE_SPACING_18PT: 18,
-    LINE_SPACING_12PT: 12,
+    LINE_SPACING_BODY: 1.5,      // 1.5 lines
+    LINE_SPACING_SINGLE: 1.0,    // Single
+    LINE_SPACING_POINTS_1_5: 18, // 1.5 lines check (~18pt for 12pt font)
+    LINE_SPACING_POINTS_SINGLE: 12,
 
     // Indentation
     FIRST_LINE_INDENT_CM: 1.25,
     FIRST_LINE_INDENT_POINTS: 35.4,  // 1.25cm = 35.4pt
     BLOCK_QUOTE_INDENT_CM: 1.25,
     BLOCK_QUOTE_INDENT_POINTS: 35.4,
-    INDENT_TOLERANCE: 3,
+    INDENT_TOLERANCE: 2,             // Strict 2pt tolerance
 
     // Spacing Around (NK = point, 6nk = 6pt)
-    SPACING_HEADING: 6,           // 6nk before AND after headings
-    SPACING_BODY: 6,              // 6nk before AND after body paragraphs
-    SPACING_BIBLIO: 3,            // 3nk for bibliography entries
-    SPACING_TOLERANCE: 2,         // Allow ±2pt tolerance (5-8pt is OK for 6pt)
-
-    // Table Validation
-    TABLE_MAX_WIDTH_POINTS: 425,  // A4 width (595pt) - 2*3cm margins (170pt) ≈ 425pt
+    SPACING_6NK: 6,
+    SPACING_3NK: 3,
+    SPACING_0NK: 0,
+    SPACING_TOLERANCE: 1,
 
     // Detection Thresholds
     BLOCK_QUOTE_MIN_INDENT_POINTS: 28, // ~1cm minimum to detect block quote
-    MIN_BODY_TEXT_LENGTH: 100,          // Minimum chars to consider as body text (only check paragraphs >100 chars)
+    MIN_BODY_TEXT_LENGTH: 100,         // Minimum chars to consider as body text
 };
 
 // Highlight Colors for Different Error Severities
@@ -82,16 +82,21 @@ const PARA_TYPES = {
     BODY_TEXT: 'BODY_TEXT',
     BLOCK_QUOTE: 'BLOCK_QUOTE',
     BIBLIOGRAPHY: 'BIBLIOGRAPHY',
-    CAPTION: 'CAPTION',
+    CAPTION_TITLE: 'CAPTION_TITLE',
+    CAPTION_CONTENT: 'CAPTION_CONTENT',
+    EPIGRAPH: 'EPIGRAPH',
     LIST_ITEM: 'LIST_ITEM',
     GHOST_HEADING: 'GHOST_HEADING',
     FRONT_MATTER: 'FRONT_MATTER',
+    COVER_TEXT: 'COVER_TEXT',
     EMPTY: 'EMPTY',
     UNKNOWN: 'UNKNOWN'
 };
 
 const ZONES = {
+    COVER: 'COVER',                   // Kapak sayfası
     FRONT_MATTER: 'FRONT_MATTER',
+    TABLE_OF_CONTENTS: 'TABLE_OF_CONTENTS', // İçindekiler tablosu
     ABSTRACT_TR: 'ABSTRACT_TR',
     ABSTRACT_EN: 'ABSTRACT_EN',
     BODY: 'BODY',
@@ -117,38 +122,28 @@ const PATTERNS = {
 
     // Sub-headings (numbered like 1.1, 2.3.1)
     SUB_HEADING: [
-        /^\d+\.\d+\.?\s+\S/,     // 1.1 or 1.1.
-        /^\d+\.\d+\.\d+\.?\s+\S/, // 1.1.1 or 1.1.1.
-        /^\d+\.\s+[A-ZÇĞİÖŞÜ]/   // 1. Başlık (numbered, starts with capital)
+        /^\d+\.\d+(\.\d+)*\.?\s+[A-ZÇĞİÖŞÜa-zçğıöşü]/, // 1.1 or 1.1.1
     ],
 
-    // Captions
-    CAPTION_TABLE: /^Tablo\s*\d+[\.:]/i,
-    CAPTION_FIGURE: /^(Şekil|Grafik|Resim|Harita)\s*\d+[\.:]/i,
-
-    // Zone switching patterns
-    BODY_START: [
-        /^GİRİŞ$/i,
-        /^1\.\s*GİRİŞ/i,
-        /^BİRİNCİ\s*BÖLÜM/i,
-        /^BÖLÜM\s*[1I]/i
-    ],
-    BACK_MATTER_START: [
-        /^KAYNAKÇA$/i,
-        /^KAYNAKLAR$/i,
-        /^REFERANSLAR$/i,
-        /^REFERENCES$/i,
-        /^BIBLIOGRAPHY$/i
-    ],
-    APPENDIX_START: [
-        /^EKLER?$/i,
-        /^EK\s*\d/i,
-        /^APPENDIX/i
-    ],
+    // Captions - must include chapter number (e.g., Tablo 1.1:, Şekil 2.3:)
+    CAPTION_TABLE: /^Tablo\s*(\d+)\.(\d+)\s*[:.]/i,
+    CAPTION_FIGURE: /^(Şekil|Grafik|Resim|Harita)\s*(\d+)\.(\d+)\s*[:.]/i,
 
     // TOC patterns
     TOC_STYLE: [/^TOC/i, /^İçindekiler/i, /^Table of Contents/i],
-    TOC_CONTENT: /\.{4,}\s*\d+$/   // Dots followed by number (page number)
+    TOC_CONTENT: /\.{5,}\s*(i|v|x|\d)+$/i, // Dots followed by page number
+    TOC_START: /^İÇİNDEKİLER$/i,
+
+    // Zone switching
+    BODY_START: /^GİRİŞ$/i,
+    BACK_MATTER_START: /^(KAYNAKÇA|KAYNAKLAR|REFERANSLAR|REFERENCES)$/i,
+
+    // Cover page patterns
+    COVER_IDENTIFIERS: [
+        /^T\.?C\.?$/i,
+        /^ERZİNCAN\s*BİNALİ\s*YILDIRIM/i,
+        /^ÜNİVERSİTESİ$/i
+    ]
 };
 
 // ============================================
@@ -223,12 +218,54 @@ function isSubHeading(text, isBold) {
 }
 
 /**
- * Check if text is a caption (Tablo X or Şekil Y)
+ * Check if text is a caption (Tablo X.Y or Şekil X.Y)
+ * Returns object with isCaption, isCorrectFormat, and captionType
  */
 function isCaption(text) {
+    if (!text) return { isCaption: false };
+    const trimmed = text.trim();
+
+    // Correct Format: "Tablo 1.1:" or "Şekil 2.1."
+    if (PATTERNS.CAPTION_TABLE.test(trimmed)) {
+        return { isCaption: true, isCorrect: true, type: 'table' };
+    }
+    if (PATTERNS.CAPTION_FIGURE.test(trimmed)) {
+        return { isCaption: true, isCorrect: true, type: 'figure' };
+    }
+
+    // Incorrect Format: "Tablo 1:" or "Tablo 1.1" (missing colon/dot) or "Şekil 1"
+    const wrongFormat = /^Tablo\s*\d+/i.test(trimmed) || /^(Şekil|Grafik|Resim|Harita)\s*\d+/i.test(trimmed);
+    if (wrongFormat) {
+        return { isCaption: true, isCorrect: false, type: 'unknown' };
+    }
+
+    return { isCaption: false };
+}
+
+function isHeadingStyle(style) {
+    if (!style) return false;
+    const s = style.toLowerCase();
+    // Default heading styles and common Turkish variations
+    return s.includes("heading") || s.includes("başlık") || s.includes("title") || s.includes("bölüm");
+}
+
+function isHeadingByOutline(outlineLevel) {
+    // outlineLevel 1-9 indicates structural headings in Word
+    return outlineLevel >= 1 && outlineLevel <= 9;
+}
+
+function isEpigraph(para, font) {
+    if (!para || !font) return false;
+    // Epigraph is right-aligned, italic, 11pt
+    return para.alignment === Word.Alignment.right &&
+        font.italic === true &&
+        font.size === EBYÜ_RULES.FONT_SIZE_EPIGRAPH;
+}
+
+function isCoverItem(text) {
     if (!text) return false;
     const trimmed = text.trim();
-    return PATTERNS.CAPTION_TABLE.test(trimmed) || PATTERNS.CAPTION_FIGURE.test(trimmed);
+    return PATTERNS.COVER_IDENTIFIERS.some(p => p.test(trimmed));
 }
 
 /**
@@ -297,69 +334,62 @@ function isAllCaps(text) {
 /**
  * Detect paragraph type based on content, style, and formatting
  */
-function detectParagraphType(para, text, style, font, isInBiblio) {
+function detectParagraphType(para, text, style, font, zone, isInBiblio) {
     const trimmed = (text || '').trim();
+    const outlineLevel = para.outlineLevel;
 
     // Empty paragraph
     if (trimmed.length === 0) {
-        // Check for Ghost Heading (empty with heading style)
-        if (isHeadingStyle(style)) {
-            return PARA_TYPES.GHOST_HEADING;
-        }
+        if (isHeadingStyle(style) || isHeadingByOutline(outlineLevel)) return PARA_TYPES.GHOST_HEADING;
         return PARA_TYPES.EMPTY;
     }
 
-    // TOC Entry (skip validation)
-    if (isTOCEntry(style, trimmed)) {
-        return PARA_TYPES.TOC_ENTRY;
+    // TOC Entry
+    if (isTOCEntry(style, trimmed)) return PARA_TYPES.TOC_ENTRY;
+
+    // Cover Page detection (if not already in zone)
+    if (zone === ZONES.COVER || isCoverItem(trimmed)) return PARA_TYPES.COVER_TEXT;
+
+    // Caption
+    const captionInfo = isCaption(trimmed);
+    if (captionInfo.isCaption) {
+        return PARA_TYPES.CAPTION_TITLE;
     }
 
-    // Caption (Tablo X, Şekil Y)
-    if (isCaption(trimmed)) {
-        return PARA_TYPES.CAPTION;
+    // Epigraph
+    if (isEpigraph(para, font)) return PARA_TYPES.EPIGRAPH;
+
+    // Bibliography
+    if (isInBiblio && trimmed.length > 5) {
+        if (!matchesAnyPattern(trimmed, PATTERNS.BACK_MATTER_START)) return PARA_TYPES.BIBLIOGRAPHY;
     }
 
-    // Bibliography entry (after KAYNAKÇA heading)
-    if (isInBiblio && trimmed.length > 10) {
-        // Skip the KAYNAKÇA heading itself
-        if (!matchesAnyPattern(trimmed, PATTERNS.BACK_MATTER_START)) {
-            return PARA_TYPES.BIBLIOGRAPHY;
-        }
-    }
+    // Main Heading Detection
+    const isMainByText = isMainHeading(trimmed);
+    const isMainByOutline = outlineLevel === 1;
+    const isMainByStyle = isHeadingStyle(style) && (style.includes("1") || /heading\s*1/i.test(style));
 
-    // Main Heading (GİRİŞ, BÖLÜM, KAYNAKÇA, etc.)
-    if (isMainHeading(trimmed)) {
+    if (isMainByText || isMainByOutline || isMainByStyle) {
         return PARA_TYPES.MAIN_HEADING;
     }
 
-    // Sub-Heading (1.1 Alt Başlık) - must be bold
-    if (isSubHeading(trimmed, font.bold === true)) {
+    // Sub-Heading Detection
+    const isSubByText = isSubHeading(trimmed, font.bold === true);
+    const isSubByOutline = outlineLevel > 1 && outlineLevel <= 4;
+    const isSubByStyle = isHeadingStyle(style);
+
+    if (isSubByText || isSubByOutline || isSubByStyle) {
         return PARA_TYPES.SUB_HEADING;
     }
 
-    // Heading detected via style
-    if (isHeadingStyle(style)) {
-        // Determine if main or sub based on style level
-        if (style.toLowerCase().includes("1") || /heading\s*1/i.test(style) || /başlık\s*1/i.test(style)) {
-            return PARA_TYPES.MAIN_HEADING;
-        }
-        return PARA_TYPES.SUB_HEADING;
-    }
-
-    // Block Quote (indented paragraph, not a list)
-    if (isBlockQuote(para)) {
-        return PARA_TYPES.BLOCK_QUOTE;
-    }
+    // Block Quote
+    if (isBlockQuote(para)) return PARA_TYPES.BLOCK_QUOTE;
 
     // List Item
-    if (isListItem(para)) {
-        return PARA_TYPES.LIST_ITEM;
-    }
+    if (isListItem(para)) return PARA_TYPES.LIST_ITEM;
 
-    // Body Text (default for substantial paragraphs)
-    if (trimmed.length >= EBYÜ_RULES.MIN_BODY_TEXT_LENGTH) {
-        return PARA_TYPES.BODY_TEXT;
-    }
+    // Body Text
+    if (trimmed.length >= 20) return PARA_TYPES.BODY_TEXT;
 
     return PARA_TYPES.UNKNOWN;
 }
@@ -376,81 +406,68 @@ function validateMainHeading(para, font, text, index) {
     const errors = [];
     const trimmed = (text || '').trim();
 
-    // Must be Centered
+    // Alignment: Centered
     if (para.alignment !== Word.Alignment.centered) {
         errors.push({
             type: 'error',
             title: 'Ana Başlık: Hizalama Hatası',
-            description: 'Ana başlıklar ORTALANMALI (Centered).',
+            description: 'Ana başlıklar ORTALANMALI.',
             severity: 'FORMAT',
             paraIndex: index
         });
     }
 
-    // Must be 14pt
+    // Font: 14pt Bold
     if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_HEADING_MAIN) > 0.5) {
         errors.push({
             type: 'error',
             title: 'Ana Başlık: Punto Hatası',
-            description: `14 punto (pt) olmalı. Mevcut: ${font.size} pt`,
+            description: `14 punto olmalı. Mevcut: ${font.size} pt`,
             severity: 'FORMAT',
             paraIndex: index
         });
     }
-
-    // Must be Bold
     if (font.bold !== true) {
         errors.push({
             type: 'error',
             title: 'Ana Başlık: Kalın Yazı Hatası',
-            description: 'Ana başlıklar KALIN (Bold) olmalı.',
+            description: 'Ana başlıklar KALIN olmalı.',
             severity: 'FORMAT',
             paraIndex: index
         });
     }
 
-    // Must be ALL CAPS
+    // ALL CAPS
     if (!isAllCaps(trimmed)) {
         errors.push({
             type: 'warning',
-            title: 'Ana Başlık: Büyük Harf Uyarısı',
+            title: 'Ana Başlık: Büyük Harf Hatası',
             description: 'Ana başlıklar TAMAMI BÜYÜK HARF olmalı.',
             severity: 'FORMAT',
             paraIndex: index
         });
     }
 
-    // Check spacing (6nk before/after)
-    // Word API returns spacing in points: spaceBefore and spaceAfter
+    // Spacing: 6nk (6pt)
     const spaceBefore = para.spaceBefore || 0;
     const spaceAfter = para.spaceAfter || 0;
-    const expectedSpacing = EBYÜ_RULES.SPACING_HEADING;
-    const tolerance = EBYÜ_RULES.SPACING_TOLERANCE;
-
-    // Check spaceBefore (should be ~6pt, allow 4-8pt)
-    if (spaceBefore < (expectedSpacing - tolerance) || spaceBefore > (expectedSpacing + tolerance + 2)) {
-        if (spaceBefore === 0 || spaceBefore > 12) {
-            errors.push({
-                type: 'warning',
-                title: 'Ana Başlık: Öncesi Boşluk (NK)',
-                description: `Başlık öncesi 6nk (6pt) olmalı. Mevcut: ${spaceBefore.toFixed(1)} pt`,
-                severity: 'FORMAT',
-                paraIndex: index
-            });
-        }
+    if (Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'Ana Başlık: Öncesi Boşluk',
+            description: `6nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} pt`,
+            severity: 'FORMAT',
+            paraIndex: index
+        });
     }
-
-    // Check spaceAfter (should be ~6pt, allow 4-8pt)
-    if (spaceAfter < (expectedSpacing - tolerance) || spaceAfter > (expectedSpacing + tolerance + 2)) {
-        if (spaceAfter === 0 || spaceAfter > 12) {
-            errors.push({
-                type: 'warning',
-                title: 'Ana Başlık: Sonrası Boşluk (NK)',
-                description: `Başlık sonrası 6nk (6pt) olmalı. Mevcut: ${spaceAfter.toFixed(1)} pt`,
-                severity: 'FORMAT',
-                paraIndex: index
-            });
-        }
+    if (Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'Ana Başlık: Sonrası Boşluk',
+            description: `6nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} pt`,
+            severity: 'FORMAT',
+            paraIndex: index
+        });
     }
 
     return errors;
@@ -463,70 +480,58 @@ function validateMainHeading(para, font, text, index) {
 function validateSubHeading(para, font, text, index) {
     const errors = [];
 
-    // Must be Left Aligned or Justified
-    if (para.alignment !== Word.Alignment.left &&
-        para.alignment !== Word.Alignment.justified) {
-        errors.push({
-            type: 'error',
-            title: 'Alt Başlık: Hizalama Hatası',
-            description: 'Alt başlıklar SOLA YASLI veya İKİ YANA YASLI olmalı.',
-            severity: 'FORMAT',
-            paraIndex: index
-        });
-    }
-
-    // Must be 12pt
+    // Font: 12pt Bold
     if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_HEADING_SUB) > 0.5) {
         errors.push({
             type: 'error',
             title: 'Alt Başlık: Punto Hatası',
-            description: `12 punto (pt) olmalı. Mevcut: ${font.size} pt`,
+            description: `12 punto olmalı. Mevcut: ${font.size} pt`,
             severity: 'FORMAT',
             paraIndex: index
         });
     }
-
-    // Must be Bold
     if (font.bold !== true) {
         errors.push({
             type: 'error',
             title: 'Alt Başlık: Kalın Yazı Hatası',
-            description: 'Alt başlıklar KALIN (Bold) olmalı.',
+            description: 'Alt başlıklar KALIN olmalı.',
             severity: 'FORMAT',
             paraIndex: index
         });
     }
 
-    // Check spacing (6nk before/after)
-    const spaceBefore = para.spaceBefore || 0;
-    const spaceAfter = para.spaceAfter || 0;
-    const expectedSpacing = EBYÜ_RULES.SPACING_HEADING;
-    const tolerance = EBYÜ_RULES.SPACING_TOLERANCE;
-
-    // Check spaceBefore (should be ~6pt, allow 4-8pt)
-    if (spaceBefore < (expectedSpacing - tolerance) || spaceBefore > (expectedSpacing + tolerance + 2)) {
-        if (spaceBefore === 0 || spaceBefore > 12) {
-            errors.push({
-                type: 'warning',
-                title: 'Alt Başlık: Öncesi Boşluk (NK)',
-                description: `Başlık öncesi 6nk (6pt) olmalı. Mevcut: ${spaceBefore.toFixed(1)} pt`,
-                severity: 'FORMAT',
-                paraIndex: index
-            });
-        }
+    // Indentation: 1.25cm (35.4pt)
+    const firstIndent = para.firstLineIndent || 0;
+    if (Math.abs(firstIndent - EBYÜ_RULES.FIRST_LINE_INDENT_POINTS) > EBYÜ_RULES.INDENT_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'Alt Başlık: Girinti Hatası',
+            description: `Paragraf başı 1.25 cm olmalı.`,
+            severity: 'FORMAT',
+            paraIndex: index
+        });
     }
 
-    // Check spaceAfter (should be ~6pt, allow 4-8pt)
-    if (spaceAfter < (expectedSpacing - tolerance) || spaceAfter > (expectedSpacing + tolerance + 2)) {
-        if (spaceAfter === 0 || spaceAfter > 12) {
-            errors.push({
-                type: 'warning',
-                title: 'Alt Başlık: Sonrası Boşluk (NK)',
-                description: `Başlık sonrası 6nk (6pt) olmalı. Mevcut: ${spaceAfter.toFixed(1)} pt`,
-                severity: 'FORMAT',
-                paraIndex: index
-            });
-        }
+    // Spacing: 6nk
+    const spaceBefore = para.spaceBefore || 0;
+    const spaceAfter = para.spaceAfter || 0;
+    if (Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'Alt Başlık: Öncesi Boşluk',
+            description: `6nk olmalı.`,
+            severity: 'FORMAT',
+            paraIndex: index
+        });
+    }
+    if (Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'Alt Başlık: Sonrası Boşluk',
+            description: `6nk olmalı.`,
+            severity: 'FORMAT',
+            paraIndex: index
+        });
     }
 
     return errors;
@@ -541,111 +546,78 @@ function validateBodyText(para, font, text, index) {
     const errors = [];
     const trimmed = (text || '').trim();
 
-    // =============================================
-    // FILTER: Skip paragraphs that are NOT body text
-    // =============================================
-
-    // Skip centered text (likely headings, captions, etc.)
-    if (para.alignment === Word.Alignment.centered) {
-        return errors;
-    }
-
-    // Skip if too short to be body text (EBYÜ Rules: MIN_BODY_TEXT_LENGTH is 50)
-    if (trimmed.length < EBYÜ_RULES.MIN_BODY_TEXT_LENGTH) {
-        return errors;
-    }
-
-    // Skip list items (they have different formatting rules)
-    if (para.listItemOrNull !== null && para.listItemOrNull !== undefined) {
-        return errors;
-    }
-
-    // Skip if it looks like a heading (numbered pattern at start)
-    if (/^\d+\.\d*/.test(trimmed) && font.bold === true) {
-        return errors;
-    }
-
-    // =============================================
-    // ACTUAL BODY TEXT VALIDATION
-    // =============================================
-
-    // Must be Times New Roman
-    if (font.name && font.name !== EBYÜ_RULES.FONT_NAME && font.name !== "Times New Roman") {
+    // Font: 12pt TNR
+    if (font.name && font.name !== "Times New Roman") {
         errors.push({
             type: 'error',
-            title: 'Gövde Metin: Yazı Tipi Hatası',
-            description: `"${font.name}" yerine Times New Roman kullanılmalı.`,
+            title: 'Gövde Metin: Yazı Tipi',
+            description: 'Times New Roman olmalı.',
             severity: 'CRITICAL',
             paraIndex: index
         });
     }
-
-    // Must be 12pt
-    // FIX: If font.size is null/undefined, it means mixed formatting (footnotes, bold, etc.)
-    // In this case, we DO NOT flag it as an error to avoid false positives.
-    if (font.size !== null && font.size !== undefined) {
-        if (Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_BODY) > 0.5) {
-            errors.push({
-                type: 'warning',
-                title: 'Gövde Metin: Punto Hatası',
-                description: `12 punto (pt) olmalı. Mevcut: ${font.size} pt`,
-                severity: 'FORMAT',
-                paraIndex: index
-            });
-        }
+    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_BODY) > 0.5) {
+        errors.push({
+            type: 'warning',
+            title: 'Gövde Metin: Punto',
+            description: '12 punto olmalı.',
+            severity: 'FORMAT',
+            paraIndex: index
+        });
     }
 
-    // Must be Justified
+    // Alignment: Justified
     if (para.alignment !== Word.Alignment.justified) {
         errors.push({
             type: 'error',
-            title: 'Gövde Metin: Hizalama Hatası',
-            description: 'Paragraf İKİ YANA YASLI (Justified) olmalı.',
+            title: 'Gövde Metin: Hizalama',
+            description: 'İki yana yaslı olmalı.',
             severity: 'FORMAT',
             paraIndex: index
         });
     }
 
-    // =============================================
-    // FIRST LINE INDENT CHECK - STRICT (1.25cm = 35.4pt)
-    // =============================================
+    // Indentation: 1.25cm
     const firstIndent = para.firstLineIndent || 0;
-    const expectedIndent = EBYÜ_RULES.FIRST_LINE_INDENT_POINTS; // 35.4pt
-    const diff = Math.abs(firstIndent - expectedIndent);
-
-    // Strict check: Must be within tolerance (default 2pt)
-    if (diff > EBYÜ_RULES.INDENT_TOLERANCE) {
+    if (Math.abs(firstIndent - EBYÜ_RULES.FIRST_LINE_INDENT_POINTS) > EBYÜ_RULES.INDENT_TOLERANCE) {
         errors.push({
             type: 'warning',
-            title: 'Gövde Metin: Girinti Hatası',
-            description: `İlk satır girintisi 1.25 cm (35.4 pt) olmalı. Mevcut: ${firstIndent.toFixed(1)} pt (${(firstIndent / 28.35).toFixed(2)} cm)`,
+            title: 'Gövde Metin: Girinti',
+            description: `Paragraf başı 1.25 cm olmalı. Mevcut: ${(firstIndent / 28.35).toFixed(2)} cm`,
             severity: 'FORMAT',
             paraIndex: index
         });
     }
 
-    // Check line spacing (should be 1.5 lines ≈ 18pt for 12pt font)
-    const lineSpacing = para.lineSpacing;
-    if (lineSpacing && lineSpacing > 0) {
-        const isValid15 = (lineSpacing >= 16 && lineSpacing <= 21);
-        if (!isValid15 && lineSpacing < 16) {
-            errors.push({
-                type: 'warning',
-                title: 'Gövde Metin: Satır Aralığı',
-                description: `1.5 satır aralığı olmalı (~18pt). Mevcut: ${lineSpacing.toFixed(1)} pt`,
-                severity: 'FORMAT',
-                paraIndex: index
-            });
-        }
-    }
-
-    // Check paragraph spacing (6nk before/after)
+    // Spacing: 6nk before/after
+    const spaceBefore = para.spaceBefore || 0;
     const spaceAfter = para.spaceAfter || 0;
-    if (spaceAfter > 12) {
+    if (Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
         errors.push({
             type: 'warning',
-            title: 'Gövde Metin: Sonrası Boşluk (NK)',
-            description: `Paragraf sonrası boşluk çok fazla. 6nk (6pt) olmalı. Mevcut: ${spaceAfter.toFixed(1)} pt`,
+            title: 'Gövde Metin: Öncesi Boşluk',
+            description: '6nk olmalı.',
+            severity: 'FORMAT',
+            paraIndex: index
+        });
+    }
+    if (Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'Gövde Metin: Sonrası Boşluk',
+            description: '6nk olmalı.',
+            severity: 'FORMAT',
+            paraIndex: index
+        });
+    }
+
+    // Line Spacing: 1.5
+    const lineSpacing = para.lineSpacing;
+    if (lineSpacing && Math.abs(lineSpacing - 18) > 2) {
+        errors.push({
+            type: 'warning',
+            title: 'Gövde Metin: Satır Aralığı',
+            description: '1.5 satır aralığı olmalı.',
             severity: 'FORMAT',
             paraIndex: index
         });
@@ -771,11 +743,15 @@ function validateBibliography(para, font, text, index) {
  * Validate Caption (Zone 5)
  * Rules: Single spacing, 12pt (Bold title) + 11pt content, Centered
  */
-function validateCaption(para, font, text, index) {
+/**
+ * Validate Caption Title
+ * Rules: 12pt Bold title, Centered, 6nk spacing
+ */
+function validateCaptionTitle(para, font, text, index) {
     const errors = [];
     const trimmed = (text || '').trim();
 
-    // Must be Centered
+    // Alignment: Centered
     if (para.alignment !== Word.Alignment.centered) {
         errors.push({
             type: 'warning',
@@ -786,29 +762,70 @@ function validateCaption(para, font, text, index) {
         });
     }
 
-    // Check single line spacing
-    const lineSpacing = para.lineSpacing;
-    if (lineSpacing && lineSpacing > 14) {
-        errors.push({
-            type: 'warning',
-            title: 'Başlık/Açıklama: Satır Aralığı',
-            description: `Tek satır aralığı (1.0) olmalı.`,
-            severity: 'FORMAT',
-            paraIndex: index
-        });
-    }
-
-    // Font check: 11pt or 12pt is acceptable for captions
-    if (font.size && font.size < 10.5) {
+    // Font: 12pt
+    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_CAPTION_TITLE) > 0.5) {
         errors.push({
             type: 'warning',
             title: 'Başlık/Açıklama: Punto',
-            description: `En az 11 punto olmalı. Mevcut: ${font.size} pt`,
+            description: `Açıklama başlığı 12 punto olmalı. Mevcut: ${font.size} pt`,
             severity: 'FORMAT',
             paraIndex: index
         });
     }
 
+    // Spacing: 6nk
+    const spaceBefore = para.spaceBefore || 0;
+    const spaceAfter = para.spaceAfter || 0;
+    if (Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE ||
+        Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'Başlık/Açıklama: Boşluk',
+            description: `Altında ve üstünde 6nk boşluk olmalı.`,
+            severity: 'FORMAT',
+            paraIndex: index
+        });
+    }
+
+    return errors;
+}
+
+function validateCoverPage(para, font, text, index) {
+    const errors = [];
+    // Rules: 16pt, 0nk spacing
+    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_COVER_TITLE) > 0.5) {
+        errors.push({
+            type: 'warning',
+            title: 'Kapak: Punto Hatası',
+            description: 'Kapak sayfası başlıkları 16 punto olmalı.',
+            severity: 'FORMAT',
+            paraIndex: index
+        });
+    }
+    if ((para.spaceBefore || 0) > 2 || (para.spaceAfter || 0) > 2) {
+        errors.push({
+            type: 'warning',
+            title: 'Kapak: Boşluk Hatası',
+            description: 'Kapak sayfasında paragraflar arası 0nk olmalı.',
+            severity: 'FORMAT',
+            paraIndex: index
+        });
+    }
+    return errors;
+}
+
+function validateEpigraph(para, font, text, index) {
+    const errors = [];
+    // Epigraph: 11pt, Italic, Right Aligned
+    if (font.size !== EBYÜ_RULES.FONT_SIZE_EPIGRAPH) {
+        errors.push({
+            type: 'warning',
+            title: 'Epigraf: Punto',
+            description: '11 punto olmalı.',
+            severity: 'FORMAT',
+            paraIndex: index
+        });
+    }
     return errors;
 }
 
@@ -990,52 +1007,24 @@ async function checkTablesSimple(context) {
             const tableWidth = table.width || 0;
             const tableAlignment = table.alignment;
 
-            // =============================================
-            // CHECK 1: Table Width
-            // =============================================
-            if (tableWidth > maxWidth + 10) { // Allow 10pt tolerance
-                widthErrors++;
-
-                const errorInfo = {
-                    type: 'width',
-                    tableIndex: i,
-                    message: `Tablo ${i + 1} sayfa sınırlarını aşıyor. Genişlik: ${(tableWidth / 28.35).toFixed(2)} cm (Max: ${(maxWidth / 28.35).toFixed(2)} cm)`
-                };
-                tableErrors.push(errorInfo);
-
-                addResult('error', 'Tablo Genişliği Hatası',
-                    errorInfo.message,
-                    `Tablo ${i + 1} (${table.rowCount} satır)`,
-                    null,
-                    undefined, // paraIndex is undefined for tables
-                    'FORMAT',
-                    { isTable: true, tableIndex: i }); // Custom data for table
+            // CHECK 1: Table Alignment (MUST be Centered)
+            if (tableAlignment !== Word.Alignment.centered) {
+                alignmentErrors++;
+                addResult('error', 'Tablo Hizalama Hatası',
+                    `Tablo ${i + 1} ORTALANMALI.`,
+                    `Tablo ${i + 1}`, null, undefined, 'FORMAT', { isTable: true, tableIndex: i });
             }
 
-            // =============================================
-            // CHECK 2: Table Alignment (MUST be Centered)
-            // =============================================
-            // TABLE ALIGNMENT: Only flag error if Left or Right aligned.
-            // If alignment is undefined, null, or Mixed/Unknown, ignore it.
-            if (tableAlignment === Word.Alignment.left || tableAlignment === Word.Alignment.right) {
-                alignmentErrors++;
-
-                const alignmentName = tableAlignment === Word.Alignment.left ? 'Sola Yaslı' : 'Sağa Yaslı';
-
-                const errorInfo = {
-                    type: 'alignment',
-                    tableIndex: i,
-                    message: `Tablo ${i + 1} ORTALANMALI (Centered). Mevcut: ${alignmentName}`
-                };
-                tableErrors.push(errorInfo);
-
-                addResult('error', 'Tablo Hizalama Hatası',
-                    errorInfo.message,
-                    `Tablo ${i + 1} (${table.rowCount} satır)`,
-                    null,
-                    undefined,
-                    'FORMAT',
-                    { isTable: true, tableIndex: i });
+            // CHECK 2: Font Size inside Table (11pt)
+            // Note: We'll check the first cell as a representative
+            const firstCell = table.getCell(0, 0);
+            firstCell.load("body/font/size");
+            await context.sync();
+            const fontSize = firstCell.body.font.size;
+            if (fontSize && Math.abs(fontSize - EBYÜ_RULES.FONT_SIZE_TABLE) > 0.5) {
+                addResult('warning', 'Tablo İçerik: Punto',
+                    `Tablo içi metinler 11 punto olmalı. Mevcut: ${fontSize} pt`,
+                    `Tablo ${i + 1}`, null, undefined, 'FORMAT', { isTable: true, tableIndex: i });
             }
         }
 
@@ -1134,12 +1123,11 @@ async function scanDocument() {
             // BATCH LOAD: Load ALL paragraph properties at once
             for (let i = 0; i < totalParagraphs; i++) {
                 const para = paragraphs.items[i];
-                para.load("text, style, alignment, firstLineIndent, leftIndent, rightIndent, lineSpacing, lineUnitBefore, lineUnitAfter, spaceAfter, spaceBefore");
+                para.load("text, style, alignment, firstLineIndent, leftIndent, rightIndent, lineSpacing, lineUnitBefore, lineUnitAfter, spaceAfter, spaceBefore, outlineLevel");
                 para.font.load("name, size, bold, italic, allCaps, highlightColor");
                 try {
                     para.load("listItemOrNull");
                 } catch (e) {
-                    // listItemOrNull not available on all platforms
                 }
             }
             await context.sync();
@@ -1156,22 +1144,24 @@ async function scanDocument() {
             // ZONE-BASED STATE MACHINE LOOP
             // Includes Abstract zones with word count tracking
             // =============================================
-            let currentZone = ZONES.FRONT_MATTER;
-            let abstractWordCountTR = 0;  // Word count for Turkish Abstract (ÖZET)
-            let abstractWordCountEN = 0;  // Word count for English Abstract (ABSTRACT)
+            let currentZone = ZONES.COVER;
+            let abstractWordCountTR = 0;
+            let abstractWordCountEN = 0;
 
             let stats = {
-                zones: { frontMatter: 0, abstractTR: 0, abstractEN: 0, body: 0, backMatter: 0 },
+                zones: { cover: 0, frontMatter: 0, abstractTR: 0, abstractEN: 0, body: 0, backMatter: 0 },
                 types: {
                     mainHeading: 0,
                     subHeading: 0,
                     bodyText: 0,
                     blockQuote: 0,
                     bibliography: 0,
-                    caption: 0,
+                    captionTitle: 0,
+                    epigraph: 0,
                     ghost: 0,
                     toc: 0,
                     list: 0,
+                    cover: 0,
                     empty: 0
                 },
                 errors: { critical: 0, format: 0 }
@@ -1193,8 +1183,16 @@ async function scanDocument() {
 
                 const previousZone = currentZone;
 
+                // Cover to Front Matter switch: If we find a heading that is NOT cover but FRONT_MATTER
+                if (currentZone === ZONES.COVER && (isMainHeading(trimmed) || isHeadingStyle(style))) {
+                    if (!isCoverItem(trimmed)) {
+                        currentZone = ZONES.FRONT_MATTER;
+                        logStep('ZONE', `→ FRONT_MATTER at paragraph ${i + 1}`);
+                    }
+                }
+
                 // Check for Turkish Abstract (ÖZET)
-                if (currentZone === ZONES.FRONT_MATTER && /^ÖZET$/i.test(trimmed)) {
+                if ((currentZone === ZONES.FRONT_MATTER || currentZone === ZONES.COVER) && /^ÖZET$/i.test(trimmed)) {
                     currentZone = ZONES.ABSTRACT_TR;
                     abstractWordCountTR = 0;
                     logStep('ZONE', `→ ABSTRACT_TR at paragraph ${i + 1}: "${trimmed}"`);
@@ -1202,71 +1200,27 @@ async function scanDocument() {
 
                 // Check for English Abstract (ABSTRACT)
                 if ((currentZone === ZONES.FRONT_MATTER || currentZone === ZONES.ABSTRACT_TR) && /^ABSTRACT$/i.test(trimmed)) {
-                    // If we were in Turkish Abstract and NOT already validated (via Anahtar Kelimeler)
-                    if (previousZone === ZONES.ABSTRACT_TR && abstractWordCountTR > 0) {
-                        // Fallback validation if no "Anahtar Kelimeler" was found
-                        if (abstractWordCountTR < 200 || abstractWordCountTR > 250) {
-                            addResult('warning', 'Türkçe Özet: Kelime Sayısı Uyarısı',
-                                `ÖZET bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountTR} kelime`,
-                                'ÖZET Bölümü', null, undefined, 'FORMAT');
-                        } else {
-                            addResult('success', 'Türkçe Özet: Kelime Sayısı',
-                                `ÖZET bölümü ${abstractWordCountTR} kelime - kurala uygun (200-250). ✓`);
-                        }
-                    }
                     currentZone = ZONES.ABSTRACT_EN;
                     abstractWordCountEN = 0;
                     logStep('ZONE', `→ ABSTRACT_EN at paragraph ${i + 1}: "${trimmed}"`);
                 }
 
-                // Check for switch to BODY zone (GİRİŞ or BÖLÜM starts body)
-                if (currentZone === ZONES.FRONT_MATTER || currentZone === ZONES.ABSTRACT_TR || currentZone === ZONES.ABSTRACT_EN) {
-                    if (matchesAnyPattern(trimmed, PATTERNS.BODY_START) &&
-                        (font.bold === true || (font.size && font.size >= 13))) {
-
-                        // Fallback validation if no "Anahtar Kelimeler" / "Keywords" was found
-                        // Only validate if count > 0 (not -1 which means already validated)
-                        if (previousZone === ZONES.ABSTRACT_TR && abstractWordCountTR > 0) {
-                            if (abstractWordCountTR < 200 || abstractWordCountTR > 250) {
-                                addResult('warning', 'Türkçe Özet: Kelime Sayısı Uyarısı',
-                                    `ÖZET bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountTR} kelime`,
-                                    'ÖZET Bölümü', null, undefined, 'FORMAT');
-                            } else {
-                                addResult('success', 'Türkçe Özet: Kelime Sayısı',
-                                    `ÖZET bölümü ${abstractWordCountTR} kelime - kurala uygun (200-250). ✓`);
-                            }
-                        }
-                        if (previousZone === ZONES.ABSTRACT_EN && abstractWordCountEN > 0) {
-                            if (abstractWordCountEN < 200 || abstractWordCountEN > 250) {
-                                addResult('warning', 'İngilizce Abstract: Kelime Sayısı Uyarısı',
-                                    `ABSTRACT bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountEN} kelime`,
-                                    'ABSTRACT Bölümü', null, undefined, 'FORMAT');
-                            } else {
-                                addResult('success', 'İngilizce Abstract: Kelime Sayısı',
-                                    `ABSTRACT bölümü ${abstractWordCountEN} kelime - kurala uygun (200-250). ✓`);
-                            }
-                        }
-
+                // Check for switch to BODY
+                if (currentZone !== ZONES.BODY && currentZone !== ZONES.BACK_MATTER) {
+                    if (matchesAnyPattern(trimmed, PATTERNS.BODY_START)) {
                         currentZone = ZONES.BODY;
                         isInBibliographyZone = false;
-                        logStep('ZONE', `→ BODY at paragraph ${i + 1}: "${trimmed.substring(0, 40)}"`);
+                        logStep('ZONE', `→ BODY at paragraph ${i + 1}`);
                     }
                 }
 
-                // Check for switch to BACK_MATTER zone (Bibliography)
+                // Check for switch to BACK_MATTER
                 if (currentZone === ZONES.BODY || currentZone === ZONES.FRONT_MATTER) {
-                    if (matchesAnyPattern(trimmed, PATTERNS.BACK_MATTER_START) &&
-                        (font.bold === true || isHeadingStyle(style))) {
+                    if (trimmed.match(PATTERNS.BACK_MATTER_START) && (font.bold === true || isHeadingStyle(style))) {
                         currentZone = ZONES.BACK_MATTER;
                         isInBibliographyZone = true;
-                        logStep('ZONE', `→ BACK_MATTER (Bibliography) at paragraph ${i + 1}: "${trimmed}"`);
+                        logStep('ZONE', `→ BACK_MATTER at paragraph ${i + 1}`);
                     }
-                }
-
-                // Check for Appendix (still back matter but different rules)
-                if (matchesAnyPattern(trimmed, PATTERNS.APPENDIX_START)) {
-                    isInBibliographyZone = false; // Appendix entries don't follow biblio rules
-                    logStep('ZONE', `→ APPENDIX at paragraph ${i + 1}`);
                 }
 
                 // =============================================
@@ -1337,6 +1291,7 @@ async function scanDocument() {
 
                 // Update zone stats
                 switch (currentZone) {
+                    case ZONES.COVER: stats.zones.cover++; break;
                     case ZONES.FRONT_MATTER: stats.zones.frontMatter++; break;
                     case ZONES.ABSTRACT_TR: stats.zones.abstractTR++; break;
                     case ZONES.ABSTRACT_EN: stats.zones.abstractEN++; break;
@@ -1347,7 +1302,7 @@ async function scanDocument() {
                 // =============================================
                 // DETECT PARAGRAPH TYPE
                 // =============================================
-                const paraType = detectParagraphType(para, text, style, font, isInBibliographyZone);
+                const paraType = detectParagraphType(para, text, style, font, currentZone, isInBibliographyZone);
 
                 // Update type stats
                 switch (paraType) {
@@ -1356,7 +1311,9 @@ async function scanDocument() {
                     case PARA_TYPES.BODY_TEXT: stats.types.bodyText++; break;
                     case PARA_TYPES.BLOCK_QUOTE: stats.types.blockQuote++; break;
                     case PARA_TYPES.BIBLIOGRAPHY: stats.types.bibliography++; break;
-                    case PARA_TYPES.CAPTION: stats.types.caption++; break;
+                    case PARA_TYPES.CAPTION_TITLE: stats.types.captionTitle++; break;
+                    case PARA_TYPES.EPIGRAPH: stats.types.epigraph++; break;
+                    case PARA_TYPES.COVER_TEXT: stats.types.cover++; break;
                     case PARA_TYPES.GHOST_HEADING: stats.types.ghost++; break;
                     case PARA_TYPES.TOC_ENTRY: stats.types.toc++; break;
                     case PARA_TYPES.LIST_ITEM: stats.types.list++; break;
@@ -1364,21 +1321,28 @@ async function scanDocument() {
                 }
 
                 // =============================================
-                // SKIP CONDITIONS
+                // SKIP CONDITIONS / SPECIAL HANDLERS
                 // =============================================
 
-                // Skip TOC entries entirely
-                if (paraType === PARA_TYPES.TOC_ENTRY) continue;
-
-                // Skip empty paragraphs (unless ghost heading - handled below)
-                if (paraType === PARA_TYPES.EMPTY) continue;
-
-                // Skip front matter paragraphs (except ghost headings)
-                if (currentZone === ZONES.FRONT_MATTER && paraType !== PARA_TYPES.GHOST_HEADING) {
+                // TOC entries: User requested 12pt check
+                if (paraType === PARA_TYPES.TOC_ENTRY) {
+                    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_BODY) > 0.5) {
+                        allErrors.push({
+                            type: 'warning',
+                            title: 'İçindekiler: Punto',
+                            description: 'İçindekiler tablosu girdileri 12 punto olmalı.',
+                            severity: 'FORMAT',
+                            paraIndex: i,
+                            location: `İçindekiler: "${trimmed.substring(0, 30)}..."`
+                        });
+                    }
                     continue;
                 }
 
-                // Skip abstract zone paragraphs (word count is handled separately)
+                // Skip empty paragraphs
+                if (paraType === PARA_TYPES.EMPTY) continue;
+
+                // Skip abstract zone (handled by word count above)
                 if (currentZone === ZONES.ABSTRACT_TR || currentZone === ZONES.ABSTRACT_EN) {
                     continue;
                 }
@@ -1416,8 +1380,26 @@ async function scanDocument() {
                         paragraphErrors = validateBibliography(para, font, text, i);
                         break;
 
-                    case PARA_TYPES.CAPTION:
-                        paragraphErrors = validateCaption(para, font, text, i);
+                    case PARA_TYPES.CAPTION_TITLE:
+                        const captionInfo = isCaption(text);
+                        if (!captionInfo.isCorrect) {
+                            paragraphErrors.push({
+                                type: 'error',
+                                title: 'Tablo/Şekil Başlığı: Format Hatası',
+                                description: 'Başlıklar bölüm numarası içermeli (Örn: Tablo 1.1:) ve iki nokta (:) ile bitmelidir.',
+                                severity: 'FORMAT',
+                                paraIndex: i
+                            });
+                        }
+                        paragraphErrors = [...paragraphErrors, ...validateCaptionTitle(para, font, text, i)];
+                        break;
+
+                    case PARA_TYPES.COVER_TEXT:
+                        paragraphErrors = validateCoverPage(para, font, text, i);
+                        break;
+
+                    case PARA_TYPES.EPIGRAPH:
+                        paragraphErrors = validateEpigraph(para, font, text, i);
                         break;
 
                     case PARA_TYPES.LIST_ITEM:
@@ -1580,14 +1562,14 @@ async function scanDocument() {
 // ============================================
 
 function addManualCheckReminders() {
+    addResult('warning', '📋 Sayfa Üst Boşluğu (7cm)',
+        'Ana bölüm başlıkları (GİRİŞ, BÖLÜM 1 vb.) sayfa üstünden 7 cm (veya 4 boş satır) sonra başlamalıdır.');
     addResult('warning', '📋 Dipnot Kontrolü (Manuel)',
         '10pt, Times New Roman, tek satır aralığı, iki yana yaslı, 0nk boşluk olmalı.');
     addResult('warning', '📋 Sayfa Numarası (Manuel)',
         'Ön kısım: Roma (i, ii, iii) | Ana metin: Arap (1, 2, 3) | Sağ alt köşede');
     addResult('warning', '📋 Tablo/Şekil Konumu (Manuel)',
         'Tablo başlığı: tablonun ÜSTünde | Şekil başlığı: şeklin ALTında');
-    addResult('warning', '📋 Başlık Sayfası (Manuel)',
-        'Üst kenar boşluğu 7 cm, başlık ile alt metin arasında 4 satır boşluk');
 }
 
 // ============================================
