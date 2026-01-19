@@ -66,6 +66,7 @@ const EBYÜ_RULES = {
     // Page Dimensions (A4)
     PAGE_WIDTH_POINTS: 595.3,
     CONTENT_MAX_WIDTH_POINTS: 425.2,   // 595.3 - (2 * 85.05)
+    MARGIN_7CM_POINTS: 198,            // 7cm ≈ 198pt
 };
 
 // Highlight Colors for Different Error Severities
@@ -349,11 +350,10 @@ function matchesAnyPattern(text, patterns) {
  */
 function isAllCaps(text) {
     if (!text) return false;
-    const trimmed = text.trim();
-    // Remove non-letter characters and check if all letters are uppercase
-    const letters = trimmed.replace(/[^A-ZÇĞİÖŞÜa-zçğıöşü]/g, '');
+    // Sadece harfleri al, Türkçe karakterleri de düşün
+    const letters = text.replace(/[^a-zA-ZğüşıöçĞÜŞİÖÇ]/g, "");
     if (letters.length === 0) return true;
-    return letters === letters.toUpperCase().replace(/İ/g, 'İ').replace(/I/g, 'I');
+    return letters === letters.toLocaleUpperCase('tr-TR');
 }
 
 /**
@@ -1191,12 +1191,9 @@ async function checkPageStarts(paragraphs) {
                     // Check if previous paragraph is empty and has a high space after, or if this has high space before
                     const spaceBefore = para.spaceBefore || 0;
 
-                    // EBYÜ: 7cm top margin (approx 200pt) or 4 empty lines.
-                    // If spaceBefore is very low, it's likely not starting a page properly or missing the gap
-                    if (spaceBefore < 100) {
-                        // Only flag as error if it doesn't look like a page start
-                        // This is a heuristic as pure "page start" detection without pagination service is hard
-                        // but 7cm gap rule is very specific.
+                    // EBYÜ: 7cm top margin (approx 198pt) or 4 empty lines.
+                    // If spaceBefore is low, it's likely missing the gap
+                    if (spaceBefore < 150) {
                         addResult('warning', 'Bölüm Başlangıç Hatası',
                             `"${text}" yeni sayfada ve üstten 7 cm (veya 4 boş satır) boşlukla başlamalıdır.`,
                             `Paragraf ${i + 1}`, null, undefined, 'FORMAT');
