@@ -739,18 +739,16 @@ function validateBibliography(para, font, text, index) {
         });
     }
 
-    // Hanging Indent Check: First line should NOT be indented, but left margin should be
-    // In Word, hanging indent = negative firstLineIndent with positive leftIndent
-    // OR firstLineIndent = 0 and leftIndent > 0
+    // ASILI GİRİNTİ KONTROLÜ (Word Mantığı: LeftIndent > 0 ve FirstLineIndent < 0)
+    // EBYÜ kuralı: 1.25 cm asılı girinti (35.4 pt)
     const firstIndent = para.firstLineIndent || 0;
     const leftIndent = para.leftIndent || 0;
 
-    // If there's a positive first line indent, that's wrong for bibliography
-    if (firstIndent > 5) {
+    if (leftIndent < 20 || firstIndent > -10) {
         errors.push({
             type: 'error',
-            title: 'Kaynakça: Girinti Hatası',
-            description: 'Kaynakça girişlerinde ilk satır girintisi OLMAMALI. Asılı (Hanging) girinti kullanın.',
+            title: 'Kaynakça: Asılı Girinti Yok',
+            description: 'Kaynakçada "Asılı" (Hanging) girinti kullanılmalıdır. (Paragraf Ayarları > Girinti > Özel > Asılı)',
             severity: 'FORMAT',
             paraIndex: index
         });
@@ -1219,14 +1217,19 @@ async function validateCaptionProximity(paragraphs) {
 
             if (captionInfo.isCaption) {
                 if (captionInfo.type === 'TABLE') {
-                    // Table caption: Next paragraph (or one after) should be a table
-                    // Note: API cannot easily check "Is there a table object strictly following this para"
-                    // but we can flag it as a reminder or check for "missing" proximity.
+                    // Table caption: Next NON-EMPTY paragraph should be content (ideally a table)
+                    const next = getNextNonEmptyParagraph(paragraphs, i);
+                    if (!next) {
+                        addResult('error', 'Tablo Başlığı Hatası',
+                            'Tablo başlığı tablonun ÜSTÜNDE olmalı, ancak altı boş.',
+                            `Paragraf ${i + 1}`, null, undefined, 'FORMAT');
+                    }
                 } else if (captionInfo.type === 'FIGURE') {
-                    // Figure caption: Previous paragraph should be an image/shape
-                    if (i === 0) {
+                    // Figure caption: Previous NON-EMPTY paragraph should be content (image)
+                    const prev = getPrevNonEmptyParagraph(paragraphs, i);
+                    if (!prev && i > 0) {
                         addResult('error', 'Şekil Başlığı Hatası',
-                            'Şekil başlığı şeklin ALTINDA olmalı, ancak bu başlık belgenin başında.',
+                            'Şekil başlığı şeklin ALTINDA olmalı, ancak üstü boş.',
                             `Paragraf ${i + 1}`, null, undefined, 'FORMAT');
                     }
                 }
@@ -1237,6 +1240,22 @@ async function validateCaptionProximity(paragraphs) {
     }
 }
 
+function getNextNonEmptyParagraph(paragraphs, currentIndex) {
+    for (let j = currentIndex + 1; j < paragraphs.items.length; j++) {
+        const text = (paragraphs.items[j].text || '').trim();
+        if (text.length > 0) return paragraphs.items[j];
+    }
+    return null;
+}
+
+function getPrevNonEmptyParagraph(paragraphs, currentIndex) {
+    for (let j = currentIndex - 1; j >= 0; j--) {
+        const text = (paragraphs.items[j].text || '').trim();
+        if (text.length > 0) return paragraphs.items[j];
+    }
+    return null;
+}
+
 /**
  * Check if images (InlinePictures and Shapes) are centered and fit within margins
  */
@@ -1244,10 +1263,17 @@ async function checkImages(context) {
     try {
         const body = context.document.body;
         const inlinePictures = body.inlinePictures;
-        // const shapes = body.shapes; // Shapes can be complex, focusing on InlinePictures first as per common use
+        const shapes = body.shapes;
 
         inlinePictures.load("items");
+        shapes.load("items");
         await context.sync();
+
+        if (shapes.items.length > 0) {
+            addResult('warning', 'Resim Yerleşimi (Floating)',
+                'Belgede "Metin Önünde/Yanında" (Floating) resimler bulundu. EBYÜ kuralları gereği resimleri "Metinle Aynı Hizada" (In Line with Text) olarak ayarlamanız önerilir.',
+                'Tüm Belge');
+        }
 
         if (inlinePictures.items.length === 0) {
             logStep('IMAGE', 'No inline pictures found');
