@@ -1084,6 +1084,10 @@ async function checkTablesSimple(context) {
                 addResult('error', 'Tablo Hizalama Hatası',
                     `Tablo ${i + 1} ORTALANMALI.`,
                     `Tablo ${i + 1}`, null, undefined, 'FORMAT', { isTable: true, tableIndex: i });
+
+                // HIGHLIGHT TABLE
+                const tableRange = table.getRange();
+                tableRange.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
             }
 
             // CHECK 2: Font Size inside Table (11pt)
@@ -1096,6 +1100,10 @@ async function checkTablesSimple(context) {
                 addResult('warning', 'Tablo İçerik: Punto',
                     `Tablo içi metinler 11 punto olmalı. Mevcut: ${fontSize} pt`,
                     `Tablo ${i + 1}`, null, undefined, 'FORMAT', { isTable: true, tableIndex: i });
+
+                // HIGHLIGHT TABLE
+                const tableRange = table.getRange();
+                tableRange.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
             }
         }
 
@@ -1162,6 +1170,10 @@ async function checkFootnotes(context) {
 
             if (errors.length > 0) {
                 footnoteErrors++;
+
+                // HIGHLIGHT FOOTNOTE PARAGRAPH
+                para.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
+
                 if (footnoteErrors <= 5) {
                     addResult('warning', 'Dipnot Format Hatası',
                         errors.join(' '),
@@ -1223,6 +1235,9 @@ async function checkPageStarts(paragraphs) {
                             `"${text}" yeni sayfada ve üstten 7 cm (veya 4 boş satır) boşlukla başlamalıdır.`,
                             `Paragraf ${i + 1}`, null, undefined, 'FORMAT');
                         pageStartErrors++;
+
+                        // HIGHLIGHT HEADING
+                        para.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
                     }
                 }
             }
@@ -1328,6 +1343,9 @@ async function checkImages(context) {
                 addResult('error', 'Resim Hizalama Hatası',
                     'Resim/Şekil içeren paragraflar ORTALANMALI.',
                     `Resim ${i + 1}`, null, undefined, 'FORMAT');
+
+                // HIGHLIGHT PARAGRAPH
+                parentPara.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
             }
 
             // CHECK 2: Width (Max Content Width)
@@ -1452,6 +1470,8 @@ async function scanDocument() {
             let currentZone = ZONES.COVER;
             let abstractWordCountTR = 0;
             let abstractWordCountEN = 0;
+            let abstractTitleTRPara = null;
+            let abstractTitleENPara = null;
 
             let stats = {
                 zones: { cover: 0, frontMatter: 0, abstractTR: 0, abstractEN: 0, body: 0, backMatter: 0 },
@@ -1500,6 +1520,7 @@ async function scanDocument() {
                 if ((currentZone === ZONES.FRONT_MATTER || currentZone === ZONES.COVER) && /^ÖZET$/i.test(trimmed)) {
                     currentZone = ZONES.ABSTRACT_TR;
                     abstractWordCountTR = 0;
+                    abstractTitleTRPara = para; // STORE TITLE PARA
                     logStep('ZONE', `→ ABSTRACT_TR at paragraph ${i + 1}: "${trimmed}"`);
                 }
 
@@ -1507,6 +1528,7 @@ async function scanDocument() {
                 if ((currentZone === ZONES.FRONT_MATTER || currentZone === ZONES.ABSTRACT_TR) && /^ABSTRACT$/i.test(trimmed)) {
                     currentZone = ZONES.ABSTRACT_EN;
                     abstractWordCountEN = 0;
+                    abstractTitleENPara = para; // STORE TITLE PARA
                     logStep('ZONE', `→ ABSTRACT_EN at paragraph ${i + 1}: "${trimmed}"`);
                 }
 
@@ -1552,6 +1574,9 @@ async function scanDocument() {
                             addResult('warning', 'Türkçe Özet: Kelime Sayısı Uyarısı',
                                 `ÖZET bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountTR} kelime`,
                                 'ÖZET Bölümü', null, undefined, 'FORMAT');
+
+                            // HIGHLIGHT TITLE
+                            if (abstractTitleTRPara) abstractTitleTRPara.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
                         } else {
                             addResult('success', 'Türkçe Özet: Kelime Sayısı',
                                 `ÖZET bölümü ${abstractWordCountTR} kelime - kurala uygun (200-250). ✓`);
@@ -1781,6 +1806,8 @@ async function scanDocument() {
                     addResult('warning', 'Türkçe Özet: Kelime Sayısı Uyarısı',
                         `ÖZET bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountTR} kelime`,
                         'ÖZET Bölümü', null, undefined, 'FORMAT');
+
+                    // Highlight Abstract Title if possible (heuristic: usually small document, but safe to just log)
                 } else {
                     addResult('success', 'Türkçe Özet: Kelime Sayısı',
                         `ÖZET bölümü ${abstractWordCountTR} kelime - kurala uygun (200-250). ✓`);
@@ -1791,6 +1818,8 @@ async function scanDocument() {
                     addResult('warning', 'İngilizce Abstract: Kelime Sayısı Uyarısı',
                         `ABSTRACT bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountEN} kelime`,
                         'ABSTRACT Bölümü', null, undefined, 'FORMAT');
+
+                    if (abstractTitleENPara) abstractTitleENPara.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
                 } else {
                     addResult('success', 'İngilizce Abstract: Kelime Sayısı',
                         `ABSTRACT bölümü ${abstractWordCountEN} kelime - kurala uygun (200-250). ✓`);
