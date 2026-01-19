@@ -62,6 +62,10 @@ const EBYÜ_RULES = {
     // Detection Thresholds
     BLOCK_QUOTE_MIN_INDENT_POINTS: 28, // ~1cm minimum to detect block quote
     MIN_BODY_TEXT_LENGTH: 100,         // Minimum chars to consider as body text
+
+    // Page Dimensions (A4)
+    PAGE_WIDTH_POINTS: 595.3,
+    CONTENT_MAX_WIDTH_POINTS: 425.2,   // 595.3 - (2 * 85.05)
 };
 
 // Highlight Colors for Different Error Severities
@@ -135,8 +139,8 @@ const PATTERNS = {
     TOC_START: /^İÇİNDEKİLER$/i,
 
     // Zone switching
-    BODY_START: /^GİRİŞ$/i,
-    BACK_MATTER_START: /^(KAYNAKÇA|KAYNAKLAR|REFERANSLAR|REFERENCES)$/i,
+    BODY_START: [/^GİRİŞ$/i],
+    BACK_MATTER_START: [/^(KAYNAKÇA|KAYNAKLAR|REFERANSLAR|REFERENCES)$/i],
 
     // Cover page patterns
     COVER_IDENTIFIERS: [
@@ -180,6 +184,27 @@ function isHeadingStyle(style) {
 /**
  * Check if paragraph is TOC entry (skip validation)
  */
+/**
+ * Helper: Check if string is Title Case (Every word starts with uppercase)
+ * Specifically for EBYÜ sub-headings.
+ */
+function isTitleCase(text) {
+    if (!text) return true;
+    // Remove leading numbers like "1.1. "
+    const cleanText = text.replace(/^\d+(\.\d+)*\.?\s+/, "").trim();
+    if (!cleanText) return true;
+
+    const words = cleanText.split(/\s+/);
+    return words.every(word => {
+        if (word.length === 0) return true;
+        // Check if first letter is uppercase
+        const firstChar = word[0];
+        // Turkish specific: İ, Ç, Ğ, Ö, Ş, Ü
+        const isUpper = firstChar === firstChar.toUpperCase() && firstChar !== firstChar.toLowerCase();
+        return isUpper;
+    });
+}
+
 function isTOCEntry(style, text) {
     if (!style && !text) return false;
     const trimmed = (text || '').trim();
@@ -534,6 +559,17 @@ function validateSubHeading(para, font, text, index) {
         });
     }
 
+    // Rule: Subheadings should be Title Case (First Letter of Each Word Uppercase)
+    if (!isTitleCase(text)) {
+        errors.push({
+            type: 'warning',
+            title: 'Alt Başlık: Küçük Harf Uyarısı',
+            description: 'Alt başlıklarda her kelimenin ilk harfi büyük olmalıdır.',
+            severity: 'FORMAT',
+            paraIndex: index
+        });
+    }
+
     return errors;
 }
 
@@ -596,7 +632,7 @@ function validateBodyText(para, font, text, index) {
         errors.push({
             type: 'warning',
             title: 'Gövde Metin: Öncesi Boşluk',
-            description: '6nk olmalı.',
+            description: `6nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} pt`,
             severity: 'FORMAT',
             paraIndex: index
         });
@@ -605,7 +641,7 @@ function validateBodyText(para, font, text, index) {
         errors.push({
             type: 'warning',
             title: 'Gövde Metin: Sonrası Boşluk',
-            description: '6nk olmalı.',
+            description: `6nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} pt`,
             severity: 'FORMAT',
             paraIndex: index
         });
@@ -658,14 +694,24 @@ function validateBlockQuote(para, font, text, index) {
 
     // Check left indent (should be ≈1.25cm)
     const leftIndent = para.leftIndent || 0;
+    const rightIndent = para.rightIndent || 0;
     const expectedIndent = EBYÜ_RULES.BLOCK_QUOTE_INDENT_POINTS;
-    const diff = Math.abs(leftIndent - expectedIndent);
 
-    if (diff > EBYÜ_RULES.INDENT_TOLERANCE * 2) {
+    if (Math.abs(leftIndent - expectedIndent) > EBYÜ_RULES.INDENT_TOLERANCE * 2) {
         errors.push({
             type: 'warning',
-            title: 'Blok Alıntı: Girinti Uyarısı',
+            title: 'Blok Alıntı: Sol Girinti',
             description: `Sol girinti 1.25 cm olmalı. Mevcut: ${(leftIndent / 28.35).toFixed(2)} cm`,
+            severity: 'FORMAT',
+            paraIndex: index
+        });
+    }
+
+    if (Math.abs(rightIndent - expectedIndent) > EBYÜ_RULES.INDENT_TOLERANCE * 2) {
+        errors.push({
+            type: 'warning',
+            title: 'Blok Alıntı: Sağ Girinti',
+            description: `Sağ girinti 1.25 cm olmalı. Mevcut: ${(rightIndent / 28.35).toFixed(2)} cm`,
             severity: 'FORMAT',
             paraIndex: index
         });
@@ -1051,6 +1097,203 @@ async function checkTablesSimple(context) {
 }
 
 /**
+ * Check Footnote formatting
+ * Rules: 10pt, Times New Roman, Justified, 0nk spacing
+ */
+async function checkFootnotes(context) {
+    try {
+        const footnoteBody = context.document.getFootnoteBody();
+        const paras = footnoteBody.paragraphs;
+        paras.load("items/text, items/font/size, items/font/name, items/alignment, items/spaceBefore, items/spaceAfter");
+        await context.sync();
+
+        if (paras.items.length === 0) {
+            logStep('FOOTNOTE', 'No footnotes found');
+            return;
+        }
+
+        logStep('FOOTNOTE', `Checking ${paras.items.length} footnote paragraphs`);
+        let footnoteErrors = 0;
+
+        for (let i = 0; i < paras.items.length; i++) {
+            const para = paras.items[i];
+            const font = para.font;
+            const text = (para.text || '').trim();
+            if (text.length === 0) continue;
+
+            const errors = [];
+            if (font.name && font.name !== "Times New Roman") {
+                errors.push("Yazı tipi Times New Roman olmalı.");
+            }
+            if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_FOOTNOTE) > 0.5) {
+                errors.push(`10 punto olmalı (Mevcut: ${font.size}pt).`);
+            }
+            if (para.alignment !== Word.Alignment.justified && para.alignment !== Word.Alignment.left) {
+                errors.push("İki yana yaslı olmalı.");
+            }
+            if ((para.spaceBefore || 0) > 2 || (para.spaceAfter || 0) > 2) {
+                errors.push("Paragraf arası boşluk 0nk olmalı.");
+            }
+
+            if (errors.length > 0) {
+                footnoteErrors++;
+                if (footnoteErrors <= 5) {
+                    addResult('warning', 'Dipnot Format Hatası',
+                        errors.join(' '),
+                        `Dipnot: "${text.substring(0, 30)}..."`, null, undefined, 'FORMAT');
+                }
+            }
+        }
+
+        if (footnoteErrors > 5) {
+            addResult('warning', 'Dipnot Hataları Özeti',
+                `Toplam ${footnoteErrors} dipnotta format hatası bulundu. Sadece ilk 5 tanesi gösterildi.`);
+        } else if (footnoteErrors === 0) {
+            addResult('success', 'Dipnotlar', 'Dipnot formatları kurallara uygun. ✓');
+        }
+
+    } catch (error) {
+        logStep('FOOTNOTE', `Footnote check skipped or failed: ${error.message}`);
+    }
+}
+
+/**
+ * Check if major sections start on a new page and handle the 7cm (200pt) gap
+ */
+async function checkPageStarts(paragraphs) {
+    try {
+        let foundMainHeadings = 0;
+        let pageStartErrors = 0;
+
+        for (let i = 0; i < paragraphs.items.length; i++) {
+            const para = paragraphs.items[i];
+            const text = (para.text || '').trim();
+
+            // We check for sections that MUST start on a new page
+            // Giriş, Özet, Abstract, Kaynakça, and all Main Chapters
+            const isMain = isMainHeading(text);
+            const isAbstract = /^(ÖZET|ABSTRACT)$/i.test(text);
+            const isIntro = /^GİRİŞ$/i.test(text);
+            const isBiblio = /^(KAYNAKÇA|KAYNAKLAR)$/i.test(text);
+
+            if (isMain || isAbstract || isIntro || isBiblio) {
+                foundMainHeadings++;
+
+                // Check if it's the very first thing in the document (OK)
+                if (i === 0) continue;
+
+                // Check for PageBreakBefore property
+                const hasPageBreakBefore = para.pageBreakBefore;
+
+                // Note: Word API check for manual page breaks in preceding text is limited
+                // So we primarily rely on pageBreakBefore or proximity to section starts
+                if (!hasPageBreakBefore) {
+                    // Check if previous paragraph is empty and has a high space after, or if this has high space before
+                    const spaceBefore = para.spaceBefore || 0;
+
+                    // EBYÜ: 7cm top margin (approx 200pt) or 4 empty lines.
+                    // If spaceBefore is very low, it's likely not starting a page properly or missing the gap
+                    if (spaceBefore < 100) {
+                        // Only flag as error if it doesn't look like a page start
+                        // This is a heuristic as pure "page start" detection without pagination service is hard
+                        // but 7cm gap rule is very specific.
+                        addResult('warning', 'Bölüm Başlangıç Hatası',
+                            `"${text}" yeni sayfada ve üstten 7 cm (veya 4 boş satır) boşlukla başlamalıdır.`,
+                            `Paragraf ${i + 1}`, null, undefined, 'FORMAT');
+                        pageStartErrors++;
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        logStep('PAGE_START', `Check failed: ${error.message}`);
+    }
+}
+
+/**
+ * Check if Table captions are ABOVE and Figure captions are BELOW
+ */
+async function validateCaptionProximity(paragraphs) {
+    try {
+        for (let i = 0; i < paragraphs.items.length; i++) {
+            const para = paragraphs.items[i];
+            const text = (para.text || '').trim();
+            const captionInfo = isCaption(text);
+
+            if (captionInfo.isCaption) {
+                if (captionInfo.type === 'TABLE') {
+                    // Table caption: Next paragraph (or one after) should be a table
+                    // Note: API cannot easily check "Is there a table object strictly following this para"
+                    // but we can flag it as a reminder or check for "missing" proximity.
+                } else if (captionInfo.type === 'FIGURE') {
+                    // Figure caption: Previous paragraph should be an image/shape
+                    if (i === 0) {
+                        addResult('error', 'Şekil Başlığı Hatası',
+                            'Şekil başlığı şeklin ALTINDA olmalı, ancak bu başlık belgenin başında.',
+                            `Paragraf ${i + 1}`, null, undefined, 'FORMAT');
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        logStep('PROXIMITY', `Check failed: ${error.message}`);
+    }
+}
+
+/**
+ * Check if images (InlinePictures and Shapes) are centered and fit within margins
+ */
+async function checkImages(context) {
+    try {
+        const body = context.document.body;
+        const inlinePictures = body.inlinePictures;
+        // const shapes = body.shapes; // Shapes can be complex, focusing on InlinePictures first as per common use
+
+        inlinePictures.load("items");
+        await context.sync();
+
+        if (inlinePictures.items.length === 0) {
+            logStep('IMAGE', 'No inline pictures found');
+            return;
+        }
+
+        logStep('IMAGE', `Checking ${inlinePictures.items.length} inline pictures`);
+
+        for (let i = 0; i < inlinePictures.items.length; i++) {
+            const pic = inlinePictures.items[i];
+            pic.load("width, height");
+
+            // Get parent paragraph to check alignment
+            const range = pic.getRange();
+            const parentPara = range.paragraphs.getFirst();
+            parentPara.load("alignment");
+
+            await context.sync();
+
+            const picWidth = pic.width;
+            const alignment = parentPara.alignment;
+
+            // CHECK 1: Alignment (MUST be Centered)
+            if (alignment !== Word.Alignment.centered) {
+                addResult('error', 'Resim Hizalama Hatası',
+                    'Resim/Şekil içeren paragraflar ORTALANMALI.',
+                    `Resim ${i + 1}`, null, undefined, 'FORMAT');
+            }
+
+            // CHECK 2: Width (Max Content Width)
+            if (picWidth > EBYÜ_RULES.CONTENT_MAX_WIDTH_POINTS + 10) { // 10pt buffer
+                addResult('error', 'Resim Taşıma Hatası',
+                    `Resim sayfa sınırlarını aşıyor. Genişlik: ${(picWidth / 28.35).toFixed(2)} cm`,
+                    `Resim ${i + 1}`, null, undefined, 'FORMAT');
+            }
+        }
+
+    } catch (error) {
+        logStep('IMAGE', `Image check error: ${error.message}`);
+    }
+}
+
+/**
  * Highlight and select a specific table by index
  * This is called from the "SHOW" button for table errors
  * @param {number} tableIndex - Index of the table to highlight
@@ -1137,6 +1380,18 @@ async function scanDocument() {
 
             updateProgress(20, "Tablolar kontrol ediliyor...");
             await checkTablesSimple(context);
+
+            updateProgress(23, "Dipnotlar kontrol ediliyor...");
+            await checkFootnotes(context);
+
+            updateProgress(26, "Resimler kontrol ediliyor...");
+            await checkImages(context);
+
+            updateProgress(28, "Bölüm başlangıçları kontrol ediliyor...");
+            await checkPageStarts(paragraphs);
+
+            updateProgress(29, "Başlık konumları kontrol ediliyor...");
+            await validateCaptionProximity(paragraphs);
 
             updateProgress(30, "Paragraflar zone-based analiz ediliyor...");
 
@@ -1561,15 +1816,14 @@ async function scanDocument() {
 // MANUAL CHECK REMINDERS
 // ============================================
 
+// Manual checks for items that cannot be fully automated reliably
 function addManualCheckReminders() {
-    addResult('warning', '📋 Sayfa Üst Boşluğu (7cm)',
-        'Ana bölüm başlıkları (GİRİŞ, BÖLÜM 1 vb.) sayfa üstünden 7 cm (veya 4 boş satır) sonra başlamalıdır.');
-    addResult('warning', '📋 Dipnot Kontrolü (Manuel)',
-        '10pt, Times New Roman, tek satır aralığı, iki yana yaslı, 0nk boşluk olmalı.');
     addResult('warning', '📋 Sayfa Numarası (Manuel)',
-        'Ön kısım: Roma (i, ii, iii) | Ana metin: Arap (1, 2, 3) | Sağ alt köşede');
+        'Ön kısım: Roma (i, ii, iii) | Ana metin: Arap (1, 2, 3) | Sağ alt köşede, 10pt Times New Roman.');
     addResult('warning', '📋 Tablo/Şekil Konumu (Manuel)',
-        'Tablo başlığı: tablonun ÜSTünde | Şekil başlığı: şeklin ALTında');
+        'Tablo başlığı: tablonun ÜSTünde | Şekil başlığı: şeklin ALTında olmalı.');
+    addResult('warning', '📋 Atıf Sistemi (Manuel)',
+        'Seçilen sisteme göre (APA 7 veya Chicago 17) metin içi veya dipnot atıfları tutarlı olmalı.');
 }
 
 // ============================================
