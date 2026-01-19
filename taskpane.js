@@ -1613,13 +1613,35 @@ async function scanDocument() {
                             addResult('success', 'Türkçe Özet: Kelime Sayısı',
                                 `ÖZET bölümü ${abstractWordCountTR} kelime - kurala uygun (200-250). ✓`);
                         }
-                        // Mark as validated so we don't validate again on zone switch
-                        abstractWordCountTR = -1; // Use -1 as a flag for "already validated"
+                        // NEW: SINGLE PAGE CHECK (TR)
+                        if (abstractHeightTR > 500) {
+                            addResult('warning', 'Türkçe Özet: Sayfa Sınırı',
+                                'ÖZET bölümü tek sayfayı geçmemelidir. Mevcut içerik bir sayfadan fazla görünüyor.',
+                                'ÖZET Bölümü', null, undefined, 'FORMAT');
+                        }
+
+                        // NEW: KEYWORD COUNT CHECK
+                        const keywords = trimmed.replace(/^anahtar\s*(kelimeler|sözcükler)\s*[:.]?/i, "").split(',');
+                        const validKeywords = keywords.filter(k => k.trim().length > 1).length;
+                        if (validKeywords < 3 || validKeywords > 5) {
+                            addResult('warning', 'Anahtar Kelime Sayısı',
+                                `En az 3, en fazla 5 anahtar kelime olmalı. Tespit edilen: ${validKeywords}`,
+                                'Özet Altı');
+                        } else {
+                            addResult('success', 'Anahtar Kelime Sayısı',
+                                `Anahtar kelime sayısı (${validKeywords}) kurala uygun (3-5). ✓`);
+                        }
+
+                        // Mark as validated
+                        abstractWordCountTR = -1;
                     }
                     // Normal paragraph - count words
                     else if (abstractWordCountTR >= 0) {
                         const words = trimmed.split(/\s+/).filter(w => w.length > 0).length;
                         abstractWordCountTR += words;
+
+                        // Vertical Height Estimation
+                        abstractHeightTR += (para.lineSpacing || 18) + (para.spaceBefore || 0) + (para.spaceAfter || 0);
                     }
                 }
 
