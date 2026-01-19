@@ -603,86 +603,56 @@ function validateSubHeading(para, font, text, index) {
 }
 
 /**
- * Validate Body Text (Zone 2)
- * Rules: Times New Roman, 12pt, Justified, First Line Indent 1.25cm, 1.5 line spacing
- * IMPORTANT: Only validates actual body text, NOT headings, centered text, or list items
+ * GÜNCELLENMİŞ: Satır Aralığı ve Paragraf Biçimi Kontrolü
+ * Word.ParagraphFormat sınıfını tam kapasite kullanır.
  */
 function validateBodyText(para, font, text, index) {
     const errors = [];
-    const trimmed = (text || '').trim();
 
-    // Font: 12pt TNR
-    if (font.name && font.name !== "Times New Roman") {
-        errors.push({
-            type: 'error',
-            title: 'Gövde Metin: Yazı Tipi',
-            description: 'Times New Roman olmalı.',
-            severity: 'CRITICAL',
-            paraIndex: index
-        });
+    // 1. Yazı Tipi (Font)
+    if (font.name !== EBYÜ_RULES.FONT_NAME) {
+        errors.push({ type: 'error', title: 'Yazı Tipi', description: 'Times New Roman olmalı.', severity: 'CRITICAL', paraIndex: index });
     }
-    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_BODY) > 0.5) {
-        errors.push({
-            type: 'warning',
-            title: 'Gövde Metin: Punto',
-            description: '12 punto olmalı.',
-            severity: 'FORMAT',
-            paraIndex: index
-        });
+    if (font.size !== EBYÜ_RULES.FONT_SIZE_BODY) {
+        errors.push({ type: 'warning', title: 'Punto', description: '12 punto olmalı.', severity: 'FORMAT', paraIndex: index });
     }
 
-    // Alignment: Justified
-    if (para.alignment !== Word.Alignment.justified) {
-        errors.push({
-            type: 'error',
-            title: 'Gövde Metin: Hizalama',
-            description: 'İki yana yaslı olmalı.',
-            severity: 'FORMAT',
-            paraIndex: index
-        });
+    // 2. Hizalama
+    if (para.alignment !== Word.Alignment.justified && para.alignment !== "Justified") {
+        errors.push({ type: 'error', title: 'Hizalama', description: 'Metin iki yana yaslı (Justified) olmalı.', severity: 'FORMAT', paraIndex: index });
     }
 
-    // Indentation: 1.25cm
-    const firstIndent = para.firstLineIndent || 0;
-    if (Math.abs(firstIndent - EBYÜ_RULES.FIRST_LINE_INDENT_POINTS) > EBYÜ_RULES.INDENT_TOLERANCE) {
-        errors.push({
-            type: 'warning',
-            title: 'Gövde Metin: Girinti',
-            description: `Paragraf başı 1.25 cm olmalı. Mevcut: ${(firstIndent / 28.35).toFixed(2)} cm`,
-            severity: 'FORMAT',
-            paraIndex: index
-        });
+    // 3. Girinti (Indentation)
+    // EBYÜ: 1.25 cm ilk satır girintisi (approx 35.4 pt)
+    const firstIndent = para.firstLineIndent;
+    if (Math.abs(firstIndent - 35.4) > 3) {
+        errors.push({ type: 'warning', title: 'Paragraf Girintisi', description: `İlk satır 1.25 cm içeriden başlamalı. (Mevcut: ${(firstIndent / 28.35).toFixed(2)} cm)`, severity: 'FORMAT', paraIndex: index });
     }
 
-    // Spacing: 6nk before/after
-    const spaceBefore = para.spaceBefore || 0;
-    const spaceAfter = para.spaceAfter || 0;
-    if (Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
-        errors.push({
-            type: 'warning',
-            title: 'Gövde Metin: Öncesi Boşluk',
-            description: `6nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} pt`,
-            severity: 'FORMAT',
-            paraIndex: index
-        });
-    }
-    if (Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
-        errors.push({
-            type: 'warning',
-            title: 'Gövde Metin: Sonrası Boşluk',
-            description: `6nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} pt`,
-            severity: 'FORMAT',
-            paraIndex: index
-        });
-    }
-
-    // Line Spacing: 1.5
+    // 4. Satır Aralığı (Line Spacing) - GÜNCELLENDİ
+    // 1.5 Satır aralığı -> Word'de lineSpacing katsayısı font boyutuna göre değişir.
+    // 12pt yazı için 1.5 satır ~ 18pt (17-19 arası kabul edilir)
     const lineSpacing = para.lineSpacing;
-    if (lineSpacing && Math.abs(lineSpacing - 18) > 2) {
+    if (lineSpacing < 17 || lineSpacing > 19) {
         errors.push({
             type: 'warning',
-            title: 'Gövde Metin: Satır Aralığı',
-            description: '1.5 satır aralığı olmalı.',
+            title: 'Satır Aralığı',
+            description: `1.5 satır aralığı (yaklaşık 18nk) olmalı. Tespit edilen: ${lineSpacing.toFixed(1)}nk`,
+            severity: 'FORMAT',
+            paraIndex: index
+        });
+    }
+
+    // 5. Paragraf Aralığı (Spacing Before/After) - 6nk/6nk Kuralı
+    const before = para.spaceBefore;
+    const after = para.spaceAfter;
+
+    // 6nk toleransı (5 ile 7 arası kabul)
+    if ((before < 5 || before > 7) || (after < 5 || after > 7)) {
+        errors.push({
+            type: 'warning',
+            title: 'Paragraf Aralığı (nk)',
+            description: `Paragraf öncesi ve sonrası 6nk olmalı. (Mevcut: Önce ${before.toFixed(1)}nk, Sonra ${after.toFixed(1)}nk)`,
             severity: 'FORMAT',
             paraIndex: index
         });
@@ -750,54 +720,31 @@ function validateBlockQuote(para, font, text, index) {
 }
 
 /**
- * Validate Bibliography Entry (Zone 4)
- * Rules: Justified/Left, Hanging indent (1 cm ≈ 28.35 pt), Single spacing, 3nk gap
+ * GÜNCELLENMİŞ: Kaynakça Kontrolü
  */
 function validateBibliography(para, font, text, index) {
     const errors = [];
 
-    // ASILI GİRİNTİ (1 cm kuralı - Madde 2.3.1)
-    const leftIndent = para.leftIndent || 0;
-    const firstIndent = para.firstLineIndent || 0;
-    const expectedHanging = EBYÜ_RULES.BIBLIOGRAPHY_HANGING_INDENT_POINTS;
+    // 1. Asılı Girinti (1 cm) - ListFormat yerine ParagraphFormat kullanılır
+    // Hanging Indent formülü: FirstLineIndent < 0 ve LeftIndent > 0
+    // EBYÜ: Asılı 1 cm (~28.35 pt)
 
-    // Word Logic: LeftIndent > 0 and FirstLineIndent < 0
-    if (Math.abs(leftIndent - expectedHanging) > 3 || firstIndent > -20) {
-        errors.push({
-            type: 'error',
-            title: 'Kaynakça: Girinti Hatası',
-            description: `Kaynakçada 1 cm (yaklaşık 28.3 pt) ASILI girinti kullanılmalıdır.`,
-            severity: 'FORMAT',
-            paraIndex: index
-        });
+    // Word'de Hanging 1cm yapınca: LeftIndent = 28.35, FirstLineIndent = -28.35 olur.
+    // Toleranslı kontrol: Negatif ve belirli bir seviyede olmalı
+    if (para.firstLineIndent > -20) {
+        errors.push({ type: 'error', title: 'Kaynakça Girintisi', description: 'Asılı (Hanging) girinti kullanılmalı (1 cm).', severity: 'FORMAT', paraIndex: index });
     }
 
-    // Satır Aralığı: Tek (Single)
-    const lineSpacing = para.lineSpacing;
-    if (lineSpacing && lineSpacing > 14) {
-        errors.push({
-            type: 'warning',
-            title: 'Kaynakça: Satır Aralığı',
-            description: 'Kaynakça tek satır aralığı olmalıdır.',
-            severity: 'FORMAT',
-            paraIndex: index
-        });
+    // 2. Satır Aralığı: Tek (Single)
+    // 12pt yazı için Single ~ 12pt
+    if (para.lineSpacing > 14) {
+        errors.push({ type: 'warning', title: 'Satır Aralığı', description: 'Kaynakça TEK satır aralığı olmalıdır.', severity: 'FORMAT', paraIndex: index });
     }
 
-    // Paragraf Aralığı: Önce 3nk Sonra 3nk
-    const spaceBefore = para.spaceBefore || 0;
-    const spaceAfter = para.spaceAfter || 0;
-    const tolerance = EBYÜ_RULES.SPACING_TOLERANCE;
-
-    if (Math.abs(spaceBefore - EBYÜ_RULES.SPACING_3NK) > tolerance ||
-        Math.abs(spaceAfter - EBYÜ_RULES.SPACING_3NK) > tolerance) {
-        errors.push({
-            type: 'warning',
-            title: 'Kaynakça: Boşluk',
-            description: `Kaynaklar arası boşluk Önce 3nk, Sonra 3nk olmalıdır. Mevcut: ${spaceBefore.toFixed(1)}nk / ${spaceAfter.toFixed(1)}nk`,
-            severity: 'FORMAT',
-            paraIndex: index
-        });
+    // 3. Paragraf Aralığı: 3nk
+    // 3nk toleransı (2 ile 4 arası kabul)
+    if ((para.spaceBefore < 2 || para.spaceBefore > 4) || (para.spaceAfter < 2 || para.spaceAfter > 4)) {
+        errors.push({ type: 'warning', title: 'Paragraf Boşluğu', description: 'Kaynaklar arası boşluk 3nk olmalıdır.', severity: 'FORMAT', paraIndex: index });
     }
 
     return errors;
@@ -1461,7 +1408,7 @@ async function scanDocument() {
             // BATCH LOAD: Load ALL paragraph properties at once
             for (let i = 0; i < totalParagraphs; i++) {
                 const para = paragraphs.items[i];
-                para.load("text, style, alignment, firstLineIndent, leftIndent, rightIndent, lineSpacing, lineUnitBefore, lineUnitAfter, spaceAfter, spaceBefore, outlineLevel, tableNestingLevel");
+                para.load("text, style, alignment, firstLineIndent, leftIndent, rightIndent, lineSpacing, spaceBefore, spaceAfter, outlineLevel, tableNestingLevel");
                 para.font.load("name, size, bold, italic, allCaps, highlightColor");
                 try {
                     para.load("listItemOrNull");
