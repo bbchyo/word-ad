@@ -1153,6 +1153,7 @@ async function checkFootnotes(context) {
 
         logStep('FOOTNOTE', `Checking ${paras.items.length} footnote paragraphs`);
         let footnoteErrors = 0;
+        let highlightedParagraphs = [];
 
         for (let i = 0; i < paras.items.length; i++) {
             const para = paras.items[i];
@@ -1179,6 +1180,7 @@ async function checkFootnotes(context) {
 
                 // HIGHLIGHT FOOTNOTE PARAGRAPH
                 para.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
+                highlightedParagraphs.push(para);
 
                 if (footnoteErrors <= 5) {
                     addResult('warning', 'Dipnot Format Hatası',
@@ -1186,6 +1188,11 @@ async function checkFootnotes(context) {
                         `Dipnot: "${text.substring(0, 30)}..."`, null, undefined, 'FORMAT');
                 }
             }
+        }
+
+        // Apply highlighting
+        if (highlightedParagraphs.length > 0) {
+            await context.sync();
         }
 
         if (footnoteErrors > 5) {
@@ -1203,10 +1210,11 @@ async function checkFootnotes(context) {
 /**
  * Check if major sections start on a new page and handle the 7cm (200pt) gap
  */
-async function checkPageStarts(paragraphs) {
+async function checkPageStarts(paragraphs, context) {
     try {
         let foundMainHeadings = 0;
         let pageStartErrors = 0;
+        let highlightedParagraphs = [];
 
         for (let i = 0; i < paragraphs.items.length; i++) {
             const para = paragraphs.items[i];
@@ -1218,8 +1226,9 @@ async function checkPageStarts(paragraphs) {
             const isAbstract = /^(ÖZET|ABSTRACT)$/i.test(text);
             const isIntro = /^GİRİŞ$/i.test(text);
             const isBiblio = /^(KAYNAKÇA|KAYNAKLAR)$/i.test(text);
+            const isFrontMatter = /^(ÖN SÖZ|ÖNSÖZ|İÇİNDEKİLER|TABLOLAR LİSTESİ|ŞEKİLLER LİSTESİ|KISALTMALAR|SONUÇ)$/i.test(text);
 
-            if (isMain || isAbstract || isIntro || isBiblio) {
+            if (isMain || isAbstract || isIntro || isBiblio || isFrontMatter) {
                 foundMainHeadings++;
 
                 // Check if it's the very first thing in the document (OK)
@@ -1239,14 +1248,20 @@ async function checkPageStarts(paragraphs) {
                     if (spaceBefore < 150) {
                         addResult('warning', 'Bölüm Başlangıç Hatası',
                             `"${text}" yeni sayfada ve üstten 7 cm (veya 4 boş satır) boşlukla başlamalıdır.`,
-                            `Paragraf ${i + 1}`, null, undefined, 'FORMAT');
+                            `Paragraf ${i + 1}`, null, i, 'FORMAT');
                         pageStartErrors++;
 
                         // HIGHLIGHT HEADING
                         para.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
+                        highlightedParagraphs.push(para);
                     }
                 }
             }
+        }
+
+        // Apply highlighting
+        if (highlightedParagraphs.length > 0 && context) {
+            await context.sync();
         }
     } catch (error) {
         logStep('PAGE_START', `Check failed: ${error.message}`);
@@ -1465,7 +1480,7 @@ async function scanDocument() {
             await checkImages(context);
 
             updateProgress(28, "Bölüm başlangıçları kontrol ediliyor...");
-            await checkPageStarts(paragraphs);
+            await checkPageStarts(paragraphs, context);
 
             updateProgress(29, "Başlık konumları kontrol ediliyor...");
             await validateCaptionProximity(paragraphs);
