@@ -1500,6 +1500,8 @@ async function scanDocument() {
             let currentZone = ZONES.COVER;
             let abstractWordCountTR = 0;
             let abstractWordCountEN = 0;
+            let abstractHeightTR = 0;
+            let abstractHeightEN = 0;
             let abstractTitleTRPara = null;
             let abstractTitleENPara = null;
 
@@ -1642,6 +1644,13 @@ async function scanDocument() {
                                 `ABSTRACT bölümü ${abstractWordCountEN} kelime - kurala uygun (200-250). ✓`);
                         }
 
+                        // NEW: SINGLE PAGE CHECK (EN)
+                        if (abstractHeightEN > 500) {
+                            addResult('warning', 'İngilizce Abstract: Sayfa Sınırı',
+                                'ABSTRACT bölümü tek sayfayı geçmemelidir. Mevcut içerik bir sayfadan fazla görünüyor.',
+                                'ABSTRACT Bölümü', null, undefined, 'FORMAT');
+                        }
+
                         // NEW: KEYWORD COUNT CHECK (EN)
                         const keywords = trimmed.replace(/^key\s*words?\s*[:.]?/i, "").split(',');
                         const validKeywords = keywords.filter(k => k.trim().length > 1).length;
@@ -1654,10 +1663,13 @@ async function scanDocument() {
                         // Mark as validated
                         abstractWordCountEN = -1;
                     }
-                    // Normal paragraph - count words
+                    // Normal paragraph - count words and track height
                     else if (abstractWordCountEN >= 0) {
                         const words = trimmed.split(/\s+/).filter(w => w.length > 0).length;
                         abstractWordCountEN += words;
+
+                        // Vertical Height Estimation
+                        abstractHeightEN += (para.lineSpacing || 18) + (para.spaceBefore || 0) + (para.spaceAfter || 0);
                     }
                 }
 
