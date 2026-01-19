@@ -51,6 +51,7 @@ const EBYÜ_RULES = {
     FIRST_LINE_INDENT_POINTS: 35.4,  // 1.25cm = 35.4pt
     BLOCK_QUOTE_INDENT_CM: 1.25,
     BLOCK_QUOTE_INDENT_POINTS: 35.4,
+    BIBLIOGRAPHY_HANGING_INDENT_POINTS: 28.35, // 1 cm ≈ 28.35 pt (Madde 2.3.1)
     INDENT_TOLERANCE: 2,             // Strict 2pt tolerance
 
     // Spacing Around (NK = point, 6nk = 6pt)
@@ -63,8 +64,9 @@ const EBYÜ_RULES = {
     BLOCK_QUOTE_MIN_INDENT_POINTS: 28, // ~1cm minimum to detect block quote
     MIN_BODY_TEXT_LENGTH: 100,         // Minimum chars to consider as body text
 
-    // Page Dimensions (A4)
+    // Page Dimensions (A4: 210mm x 297mm)
     PAGE_WIDTH_POINTS: 595.3,
+    PAGE_HEIGHT_POINTS: 841.9,
     CONTENT_MAX_WIDTH_POINTS: 425.2,   // 595.3 - (2 * 85.05)
     MARGIN_7CM_POINTS: 198,            // 7cm ≈ 198pt
 };
@@ -749,59 +751,50 @@ function validateBlockQuote(para, font, text, index) {
 
 /**
  * Validate Bibliography Entry (Zone 4)
- * Rules: Justified/Left, Hanging indent (First Line 0, Left > 0), Single spacing
+ * Rules: Justified/Left, Hanging indent (1 cm ≈ 28.35 pt), Single spacing, 3nk gap
  */
 function validateBibliography(para, font, text, index) {
     const errors = [];
 
-    // Alignment: Justified or Left is OK
-    if (para.alignment !== Word.Alignment.justified &&
-        para.alignment !== Word.Alignment.left) {
-        errors.push({
-            type: 'warning',
-            title: 'Kaynakça: Hizalama',
-            description: 'İki yana yaslı veya sola yaslı olmalı.',
-            severity: 'FORMAT',
-            paraIndex: index
-        });
-    }
-
-    // ASILI GİRİNTİ KONTROLÜ (Word Mantığı: LeftIndent > 0 ve FirstLineIndent < 0)
-    // EBYÜ kuralı: 1.25 cm asılı girinti (35.4 pt)
-    const firstIndent = para.firstLineIndent || 0;
+    // ASILI GİRİNTİ (1 cm kuralı - Madde 2.3.1)
     const leftIndent = para.leftIndent || 0;
+    const firstIndent = para.firstLineIndent || 0;
+    const expectedHanging = EBYÜ_RULES.BIBLIOGRAPHY_HANGING_INDENT_POINTS;
 
-    if (leftIndent < 20 || firstIndent > -10) {
+    // Word Logic: LeftIndent > 0 and FirstLineIndent < 0
+    if (Math.abs(leftIndent - expectedHanging) > 3 || firstIndent > -20) {
         errors.push({
             type: 'error',
-            title: 'Kaynakça: Asılı Girinti Yok',
-            description: 'Kaynakçada "Asılı" (Hanging) girinti kullanılmalıdır. (Paragraf Ayarları > Girinti > Özel > Asılı)',
+            title: 'Kaynakça: Girinti Hatası',
+            description: `Kaynakçada 1 cm (yaklaşık 28.3 pt) ASILI girinti kullanılmalıdır.`,
             severity: 'FORMAT',
             paraIndex: index
         });
     }
 
-    // Check for single line spacing
+    // Satır Aralığı: Tek (Single)
     const lineSpacing = para.lineSpacing;
     if (lineSpacing && lineSpacing > 14) {
         errors.push({
             type: 'warning',
             title: 'Kaynakça: Satır Aralığı',
-            description: `Tek satır aralığı (1.0) olmalı. Mevcut: ${lineSpacing.toFixed(1)} pt`,
+            description: 'Kaynakça tek satır aralığı olmalıdır.',
             severity: 'FORMAT',
             paraIndex: index
         });
     }
 
-    // Check paragraph spacing (3nk before/after for bibliography entries)
+    // Paragraf Aralığı: Önce 3nk Sonra 3nk
+    const spaceBefore = para.spaceBefore || 0;
     const spaceAfter = para.spaceAfter || 0;
+    const tolerance = EBYÜ_RULES.SPACING_TOLERANCE;
 
-    // Bibliography entries should have some space after (around 3pt) but not too much
-    if (spaceAfter > 10) {
+    if (Math.abs(spaceBefore - EBYÜ_RULES.SPACING_3NK) > tolerance ||
+        Math.abs(spaceAfter - EBYÜ_RULES.SPACING_3NK) > tolerance) {
         errors.push({
             type: 'warning',
-            title: 'Kaynakça: Giriş Sonrası Boşluk',
-            description: `Kaynak girişi sonrası boşluk çok fazla. 3nk (3pt) olmalı. Mevcut: ${spaceAfter.toFixed(1)} pt`,
+            title: 'Kaynakça: Boşluk',
+            description: `Kaynaklar arası boşluk Önce 3nk, Sonra 3nk olmalıdır. Mevcut: ${spaceBefore.toFixed(1)}nk / ${spaceAfter.toFixed(1)}nk`,
             severity: 'FORMAT',
             paraIndex: index
         });
@@ -1044,6 +1037,40 @@ async function checkMargins(context, sections) {
 
 // Global storage for table errors to enable "SHOW" button
 let tableErrors = [];
+
+/**
+ * Check Page Setup (A4 size and Manual Page Numbering Reminder)
+ * Rules: A4 (210x297mm), Roman for Front Matter, Arabic for Body
+ */
+async function checkPageSetup(context, sections) {
+    try {
+        for (let i = 0; i < sections.items.length; i++) {
+            const section = sections.items[i];
+            const pageSetup = section.getPageSetup();
+            pageSetup.load("paperWidth, paperHeight");
+            await context.sync();
+
+            // 1. A4 Size Check (Tolerance ±5pt)
+            const widthMatch = Math.abs(pageSetup.paperWidth - EBYÜ_RULES.PAGE_WIDTH_POINTS) < 5;
+            const heightMatch = Math.abs(pageSetup.paperHeight - EBYÜ_RULES.PAGE_HEIGHT_POINTS) < 5;
+
+            if (!widthMatch || !heightMatch) {
+                addResult('error', 'Kağıt Boyutu Hatası',
+                    `Bölüm ${i + 1} kağıt boyutu A4 (210x297mm) değil.`,
+                    'Sayfa Düzeni', null, undefined, 'CRITICAL');
+            }
+
+            // 2. Sayfa Numarası Uyarısı (Manuel)
+            if (i === 0) {
+                addResult('warning', 'Sayfa Numarası (Manuel)',
+                    'Ön kısım (İçindekiler vb.) Roma rakamı (i, ii), Giriş sonrası Arap rakamı (1, 2) olmalıdır. Lütfen kontrol edin.',
+                    'Alt Bilgi');
+            }
+        }
+    } catch (error) {
+        logStep('PAGE_SETUP', `Check failed: ${error.message}`);
+    }
+}
 
 /**
  * Check if tables fit within page margins AND are properly aligned
@@ -1446,6 +1473,9 @@ async function scanDocument() {
             updateProgress(15, "Kenar boşlukları kontrol ediliyor...");
             await checkMargins(context, sections);
 
+            updateProgress(18, "Sayfa düzeni kontrol ediliyor...");
+            await checkPageSetup(context, sections);
+
             updateProgress(20, "Tablolar kontrol ediliyor...");
             await checkTablesSimple(context);
 
@@ -1605,10 +1635,22 @@ async function scanDocument() {
                             addResult('warning', 'İngilizce Abstract: Kelime Sayısı Uyarısı',
                                 `ABSTRACT bölümü 200-250 kelime olmalı. Mevcut: ${abstractWordCountEN} kelime`,
                                 'ABSTRACT Bölümü', null, undefined, 'FORMAT');
+
+                            if (abstractTitleENPara) abstractTitleENPara.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
                         } else {
                             addResult('success', 'İngilizce Abstract: Kelime Sayısı',
                                 `ABSTRACT bölümü ${abstractWordCountEN} kelime - kurala uygun (200-250). ✓`);
                         }
+
+                        // NEW: KEYWORD COUNT CHECK (EN)
+                        const keywords = trimmed.replace(/^key\s*words?\s*[:.]?/i, "").split(',');
+                        const validKeywords = keywords.filter(k => k.trim().length > 1).length;
+                        if (validKeywords < 3 || validKeywords > 5) {
+                            addResult('warning', 'İngilizce Abstract: Anahtar Kelime Sayısı',
+                                `En az 3, en fazla 5 anahtar kelime olmalı. Tespit edilen: ${validKeywords}`,
+                                'Abstract Altı');
+                        }
+
                         // Mark as validated
                         abstractWordCountEN = -1;
                     }
