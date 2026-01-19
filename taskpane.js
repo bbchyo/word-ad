@@ -363,6 +363,15 @@ function detectParagraphType(para, text, style, font, zone, isInBiblio) {
     const trimmed = (text || '').trim();
     const outlineLevel = para.outlineLevel;
 
+    // RULE: If inside a table, don't detect as heading (except captions)
+    if (para.tableNestingLevel > 0) {
+        const captionInfo = isCaption(trimmed);
+        if (captionInfo.isCaption) {
+            return PARA_TYPES.CAPTION_TITLE;
+        }
+        return PARA_TYPES.BODY_TEXT;
+    }
+
     // Empty paragraph
     if (trimmed.length === 0) {
         if (isHeadingStyle(style) || isHeadingByOutline(outlineLevel)) return PARA_TYPES.GHOST_HEADING;
@@ -502,10 +511,46 @@ function validateMainHeading(para, font, text, index) {
  * Validate Sub-Heading (Zone 1B)
  * Rules: Left Aligned (or Justified), 12pt, Bold, 6nk before/after
  */
+/**
+ * Validate Sub-Heading (Zone 1B)
+ * Rules: 
+ * 1. 12pt, Bold, Times New Roman
+ * 2. 1.25cm (35.4pt) Girinti (First Line Indent)
+ * 3. Numaralandırma Formatı (1.1. veya 1.1 gibi başlamalı)
+ * 4. Başlık Düzeni (Her kelimenin ilki büyük)
+ */
 function validateSubHeading(para, font, text, index) {
     const errors = [];
+    const trimmed = text.trim();
 
-    // Font: 12pt Bold
+    // 1. Numaralandırma Kontrolü (Regex: Rakam nokta Rakam...)
+    // Örnek: "1.1. Başlık" veya "2.1.3 Başlık"
+    const numberingPattern = /^\d+(\.\d+)+(\.| )/;
+    if (!numberingPattern.test(trimmed)) {
+        errors.push({
+            type: 'error',
+            title: 'Alt Başlık: Numaralandırma Hatası',
+            description: 'Alt başlıklar hiyerarşik numara ile başlamalıdır (Örn: 1.1. veya 2.1.3).',
+            severity: 'CRITICAL',
+            paraIndex: index
+        });
+    }
+
+    // 2. Girinti (Hizalama) Kontrolü: 1.25 cm (35.4 pt)
+    const firstIndent = para.firstLineIndent || 0;
+
+    // EBYÜ genelde "Paragraf başı ile hizalı" der, bu da 1.25cm First Line Indent demektir.
+    if (Math.abs(firstIndent - EBYÜ_RULES.FIRST_LINE_INDENT_POINTS) > EBYÜ_RULES.INDENT_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'Alt Başlık: Girinti Hatası',
+            description: `Alt başlık 1.25 cm içeriden başlamalıdır. Mevcut: ${(firstIndent / 28.35).toFixed(2)} cm`,
+            severity: 'FORMAT',
+            paraIndex: index
+        });
+    }
+
+    // 3. Font ve Stil Kontrolleri
     if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_HEADING_SUB) > 0.5) {
         errors.push({
             type: 'error',
@@ -515,56 +560,38 @@ function validateSubHeading(para, font, text, index) {
             paraIndex: index
         });
     }
+
     if (font.bold !== true) {
         errors.push({
             type: 'error',
-            title: 'Alt Başlık: Kalın Yazı Hatası',
-            description: 'Alt başlıklar KALIN olmalı.',
+            title: 'Alt Başlık: Kalınlık',
+            description: 'Alt başlıklar KALIN (Bold) olmalı.',
             severity: 'FORMAT',
             paraIndex: index
         });
     }
 
-    // Indentation: 1.25cm (35.4pt)
-    const firstIndent = para.firstLineIndent || 0;
-    if (Math.abs(firstIndent - EBYÜ_RULES.FIRST_LINE_INDENT_POINTS) > EBYÜ_RULES.INDENT_TOLERANCE) {
+    // 4. Yazım Düzeni (Title Case)
+    if (!isTitleCase(trimmed)) {
         errors.push({
             type: 'warning',
-            title: 'Alt Başlık: Girinti Hatası',
-            description: `Paragraf başı 1.25 cm olmalı.`,
+            title: 'Alt Başlık: Büyük/Küçük Harf',
+            description: 'Alt başlıklarda Her Kelimenin İlk Harfi Büyük Olmalıdır.',
             severity: 'FORMAT',
             paraIndex: index
         });
     }
 
-    // Spacing: 6nk
+    // 5. Boşluklar (6nk önce/sonra)
     const spaceBefore = para.spaceBefore || 0;
     const spaceAfter = para.spaceAfter || 0;
-    if (Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
-        errors.push({
-            type: 'warning',
-            title: 'Alt Başlık: Öncesi Boşluk',
-            description: `6nk olmalı.`,
-            severity: 'FORMAT',
-            paraIndex: index
-        });
-    }
-    if (Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
-        errors.push({
-            type: 'warning',
-            title: 'Alt Başlık: Sonrası Boşluk',
-            description: `6nk olmalı.`,
-            severity: 'FORMAT',
-            paraIndex: index
-        });
-    }
 
-    // Rule: Subheadings should be Title Case (First Letter of Each Word Uppercase)
-    if (!isTitleCase(text)) {
+    if (Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE ||
+        Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
         errors.push({
             type: 'warning',
-            title: 'Alt Başlık: Küçük Harf Uyarısı',
-            description: 'Alt başlıklarda her kelimenin ilk harfi büyük olmalıdır.',
+            title: 'Alt Başlık: Aralık',
+            description: 'Öncesi ve sonrası 6nk (6pt) boşluk olmalı.',
             severity: 'FORMAT',
             paraIndex: index
         });
@@ -1389,7 +1416,7 @@ async function scanDocument() {
             // BATCH LOAD: Load ALL paragraph properties at once
             for (let i = 0; i < totalParagraphs; i++) {
                 const para = paragraphs.items[i];
-                para.load("text, style, alignment, firstLineIndent, leftIndent, rightIndent, lineSpacing, lineUnitBefore, lineUnitAfter, spaceAfter, spaceBefore, outlineLevel");
+                para.load("text, style, alignment, firstLineIndent, leftIndent, rightIndent, lineSpacing, lineUnitBefore, lineUnitAfter, spaceAfter, spaceBefore, outlineLevel, tableNestingLevel");
                 para.font.load("name, size, bold, italic, allCaps, highlightColor");
                 try {
                     para.load("listItemOrNull");
