@@ -1289,6 +1289,11 @@ async function scanDocument() {
 
             for (let i = 0; i < paragraphs.items.length; i++) {
                 const p = paragraphs.items[i];
+
+                // Defensive null checks - paragraphFormat may be undefined for some elements
+                const pFormat = p.paragraphFormat || {};
+                const pFont = p.font || {};
+
                 paragraphDataList.push({
                     index: i,
                     text: p.text || '',
@@ -1296,18 +1301,18 @@ async function scanDocument() {
                     outlineLevel: p.outlineLevel,
                     tableNestingLevel: p.tableNestingLevel || 0,
                     font: {
-                        name: p.font.name,
-                        size: p.font.size,
-                        bold: p.font.bold,
-                        italic: p.font.italic
+                        name: pFont.name,
+                        size: pFont.size,
+                        bold: pFont.bold,
+                        italic: pFont.italic
                     },
-                    alignment: p.paragraphFormat.alignment,
-                    firstLineIndent: p.paragraphFormat.firstLineIndent,
-                    leftIndent: p.paragraphFormat.leftIndent,
-                    rightIndent: p.paragraphFormat.rightIndent,
-                    lineSpacing: p.paragraphFormat.lineSpacing,
-                    spaceBefore: p.paragraphFormat.spaceBefore,
-                    spaceAfter: p.paragraphFormat.spaceAfter,
+                    alignment: pFormat.alignment,
+                    firstLineIndent: pFormat.firstLineIndent,
+                    leftIndent: pFormat.leftIndent,
+                    rightIndent: pFormat.rightIndent,
+                    lineSpacing: pFormat.lineSpacing,
+                    spaceBefore: pFormat.spaceBefore,
+                    spaceAfter: pFormat.spaceAfter,
                     paragraph: p  // Keep reference for highlighting
                 });
             }
