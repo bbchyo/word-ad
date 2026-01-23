@@ -462,13 +462,47 @@ function displayResults() {
 }
 
 function createResultItem(result, type) {
+    // Extract paragraph number from location for navigation
+    const paraMatch = result.location ? result.location.match(/Paragraf\s*(\d+)/i) : null;
+    const paraIndex = paraMatch ? parseInt(paraMatch[1]) - 1 : null;
+
+    const showButton = paraIndex !== null
+        ? `<button class="show-error-btn" onclick="goToError(${paraIndex})">GÖSTER</button>`
+        : '';
+
     return `
         <div class="result-item ${type}">
-            <div class="result-title">${result.title}</div>
+            <div class="result-header">
+                <span class="result-title">${result.title}</span>
+                ${showButton}
+            </div>
             <div class="result-description">${result.description}</div>
             <div class="result-location">${result.location || ''}</div>
         </div>
     `;
+}
+
+// ============================================
+// NAVIGATE TO ERROR (Hataya Git)
+// ============================================
+
+async function goToError(paragraphIndex) {
+    try {
+        await Word.run(async (context) => {
+            const paragraphs = context.document.body.paragraphs;
+            paragraphs.load('items');
+            await context.sync();
+
+            if (paragraphIndex >= 0 && paragraphIndex < paragraphs.items.length) {
+                const para = paragraphs.items[paragraphIndex];
+                para.select();
+                await context.sync();
+                logStep('NAVIGATE', `Navigated to paragraph ${paragraphIndex + 1}`);
+            }
+        });
+    } catch (error) {
+        console.error('Navigation error:', error);
+    }
 }
 
 // ============================================
