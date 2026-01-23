@@ -54,7 +54,7 @@ const EBYÜ_RULES = {
 
     MARGIN_TOP_SPECIAL_POINTS: 198.45, // 7cm for Main Chapter Starts
 
-    MARGIN_TOLERANCE: 2.5, // Tolerance for floating point diffs
+    MARGIN_TOLERANCE: 3, // ±3pt tolerans (~1mm)
 
 
 
@@ -106,7 +106,19 @@ const EBYÜ_RULES = {
 
     SPACING_0NK: 0,
 
-    SPACING_TOLERANCE: 1.5,
+    SPACING_TOLERANCE: 2, // Artırıldı: Word küsuratlı değer verebilir
+
+
+
+    // Spacing ranges for validation
+
+    SPACING_0NK_MIN: 0,
+
+    SPACING_0NK_MAX: 2,  // 0nk için 0-2 arası kabul
+
+    SPACING_6NK_MIN: 4,
+
+    SPACING_6NK_MAX: 8,  // 6nk için 4-8 arası kabul
 
 
 
@@ -114,11 +126,11 @@ const EBYÜ_RULES = {
 
     LINE_SPACING_1_5_MIN: 17,
 
-    LINE_SPACING_1_5_MAX: 19,
+    LINE_SPACING_1_5_MAX: 22, // Artırıldı: daha geniş tolerans
 
     LINE_SPACING_SINGLE_MIN: 11,
 
-    LINE_SPACING_SINGLE_MAX: 13,
+    LINE_SPACING_SINGLE_MAX: 14,
 
 
 
@@ -1268,11 +1280,43 @@ async function validateSectionMargins(context, sections) {
 
 
 
+                // DEBUG LOG: Okunan ham değerleri konsola yazdır
+
+                console.log(`[MARGIN DEBUG] Bölüm ${i + 1}:`);
+
+                console.log(`  - topMargin: ${pageSetup.topMargin} pt (${(pageSetup.topMargin / 28.35).toFixed(2)} cm)`);
+
+                console.log(`  - bottomMargin: ${pageSetup.bottomMargin} pt (${(pageSetup.bottomMargin / 28.35).toFixed(2)} cm)`);
+
+                console.log(`  - leftMargin: ${pageSetup.leftMargin} pt (${(pageSetup.leftMargin / 28.35).toFixed(2)} cm)`);
+
+                console.log(`  - rightMargin: ${pageSetup.rightMargin} pt (${(pageSetup.rightMargin / 28.35).toFixed(2)} cm)`);
+
+                console.log(`  - İlk paragraf: "${firstParaText.substring(0, 30)}..."`);
+
+                console.log(`  - Ana bölüm başlangıcı mı: ${isMainChapterStart}`);
+
+                console.log(`  - Beklenen üst boşluk: ${expectedTopMargin} pt (${isMainChapterStart ? 7 : 3} cm)`);
+
+                console.log(`  - Tolerans: ±${tolerance} pt`);
+
+
+
+                logStep('MARGIN', `Bölüm ${i + 1}: top=${pageSetup.topMargin}pt, bottom=${pageSetup.bottomMargin}pt, left=${pageSetup.leftMargin}pt, right=${pageSetup.rightMargin}pt`);
+
+
+
                 // Check top margin
 
-                if (pageSetup.topMargin !== undefined) {
+                if (pageSetup.topMargin !== undefined && pageSetup.topMargin !== null) {
 
-                    if (Math.abs(pageSetup.topMargin - expectedTopMargin) > tolerance) {
+                    const diff = Math.abs(pageSetup.topMargin - expectedTopMargin);
+
+                    console.log(`  - Üst boşluk farkı: ${diff.toFixed(2)} pt (tolerans: ${tolerance} pt)`);
+
+
+
+                    if (diff > tolerance) {
 
                         const expectedCm = isMainChapterStart ? 7 : 3;
 
@@ -1282,7 +1326,7 @@ async function validateSectionMargins(context, sections) {
 
                             title: `Bölüm ${i + 1}: Üst Kenar Boşluğu`,
 
-                            description: `Üst kenar ${expectedCm} cm olmalı. Mevcut: ${(pageSetup.topMargin / 28.35).toFixed(2)} cm`,
+                            description: `Üst kenar ${expectedCm} cm olmalı. Mevcut: ${(pageSetup.topMargin / 28.35).toFixed(2)} cm (${pageSetup.topMargin.toFixed(1)} pt)`,
 
                             location: `Bölüm ${i + 1}`,
 
@@ -1292,67 +1336,71 @@ async function validateSectionMargins(context, sections) {
 
                     }
 
+                } else {
 
+                    console.log(`  - ⚠️ topMargin undefined veya null!`);
 
-                    // Check other margins (should always be 3cm)
-
-                    if (Math.abs(pageSetup.bottomMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
-
-                        marginErrors.push({
-
-                            type: 'error',
-
-                            title: `Bölüm ${i + 1}: Alt Kenar Boşluğu`,
-
-                            description: `Alt kenar 3 cm olmalı. Mevcut: ${(pageSetup.bottomMargin / 28.35).toFixed(2)} cm`,
-
-                            location: `Bölüm ${i + 1}`,
-
-                            severity: 'CRITICAL'
-
-                        });
-
-                    }
+                }
 
 
 
-                    if (Math.abs(pageSetup.leftMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
+                // Check other margins (should always be 3cm)
 
-                        marginErrors.push({
+                if (Math.abs(pageSetup.bottomMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
 
-                            type: 'error',
+                    marginErrors.push({
 
-                            title: `Bölüm ${i + 1}: Sol Kenar Boşluğu`,
+                        type: 'error',
 
-                            description: `Sol kenar 3 cm olmalı. Mevcut: ${(pageSetup.leftMargin / 28.35).toFixed(2)} cm`,
+                        title: `Bölüm ${i + 1}: Alt Kenar Boşluğu`,
 
-                            location: `Bölüm ${i + 1}`,
+                        description: `Alt kenar 3 cm olmalı. Mevcut: ${(pageSetup.bottomMargin / 28.35).toFixed(2)} cm`,
 
-                            severity: 'CRITICAL'
+                        location: `Bölüm ${i + 1}`,
 
-                        });
+                        severity: 'CRITICAL'
 
-                    }
+                    });
+
+                }
 
 
 
-                    if (Math.abs(pageSetup.rightMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
+                if (Math.abs(pageSetup.leftMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
 
-                        marginErrors.push({
+                    marginErrors.push({
 
-                            type: 'error',
+                        type: 'error',
 
-                            title: `Bölüm ${i + 1}: Sağ Kenar Boşluğu`,
+                        title: `Bölüm ${i + 1}: Sol Kenar Boşluğu`,
 
-                            description: `Sağ kenar 3 cm olmalı. Mevcut: ${(pageSetup.rightMargin / 28.35).toFixed(2)} cm`,
+                        description: `Sol kenar 3 cm olmalı. Mevcut: ${(pageSetup.leftMargin / 28.35).toFixed(2)} cm`,
 
-                            location: `Bölüm ${i + 1}`,
+                        location: `Bölüm ${i + 1}`,
 
-                            severity: 'CRITICAL'
+                        severity: 'CRITICAL'
 
-                        });
+                    });
 
-                    }
+                }
+
+
+
+                if (Math.abs(pageSetup.rightMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
+
+                    marginErrors.push({
+
+                        type: 'error',
+
+                        title: `Bölüm ${i + 1}: Sağ Kenar Boşluğu`,
+
+                        description: `Sağ kenar 3 cm olmalı. Mevcut: ${(pageSetup.rightMargin / 28.35).toFixed(2)} cm`,
+
+                        location: `Bölüm ${i + 1}`,
+
+                        severity: 'CRITICAL'
+
+                    });
 
                 }
 
@@ -1600,6 +1648,20 @@ function validateBodyText(paraData, index) {
 
 
 
+    // DEBUG LOG: Metin paragrafı boşluk değerleri (her 10 paragrafta bir)
+
+    if (index % 10 === 0) {
+
+        console.log(`[BODY DEBUG] Paragraf ${index + 1}: "${(text || '').substring(0, 30)}..."`);
+
+        console.log(`  - lineSpacing: ${lineSpacing} pt, rule: ${paraData.lineSpacingRule}`);
+
+        console.log(`  - spaceBefore: ${spaceBefore} pt, spaceAfter: ${spaceAfter} pt`);
+
+    }
+
+
+
     // Font name
 
     if (font.name && font.name !== EBYÜ_RULES.FONT_NAME) {
@@ -1728,7 +1790,7 @@ function validateBodyText(paraData, index) {
 
 
 
-    if (lineSpacing !== undefined) {
+    if (lineSpacing !== undefined && lineSpacing !== null) {
 
         const rule = paraData.lineSpacingRule;
 
@@ -1736,25 +1798,47 @@ function validateBodyText(paraData, index) {
 
 
 
-        if (rule === 'Multiple' || rule === Word.LineSpacingRule.multiple) {
+        // 1. OneAndOneHalf (1.5 Satır) -> her zaman geçerli
 
-            // Multiple modunda lineSpacing değeri çarpan (1.0, 1.5, 2.0 gibi)
+        if (rule === 'OneAndOneHalf' || rule === Word.LineSpacingRule.oneAndOneHalf) {
 
-            // 1.5 satır = lineSpacing ~1.5 veya ~18pt (12*1.5)
+            isValidSpacing = true;
+
+        }
+
+        // 2. Multiple modunda değer kontrolü
+
+        else if (rule === 'Multiple' || rule === Word.LineSpacingRule.multiple) {
+
+            // Multiple modunda lineSpacing pt cinsinden veya çarpan olabilir
 
             isValidSpacing = (lineSpacing >= 1.4 && lineSpacing <= 1.6) ||
 
                 (lineSpacing >= EBYÜ_RULES.LINE_SPACING_1_5_MIN && lineSpacing <= EBYÜ_RULES.LINE_SPACING_1_5_MAX);
 
-        } else if (rule === 'Single' || rule === Word.LineSpacingRule.single) {
+        }
 
-            // Tek satır - 1.5 satır değil
+        // 3. AtLeast veya Exactly modlarında pt değeri kontrolü
+
+        else if (rule === 'AtLeast' || rule === 'Exactly' ||
+
+            rule === Word.LineSpacingRule.atLeast || rule === Word.LineSpacingRule.exactly) {
+
+            isValidSpacing = lineSpacing >= EBYÜ_RULES.LINE_SPACING_1_5_MIN && lineSpacing <= EBYÜ_RULES.LINE_SPACING_1_5_MAX;
+
+        }
+
+        // 4. Single veya Double -> geçersiz
+
+        else if (rule === 'Single' || rule === 'Double') {
 
             isValidSpacing = false;
 
-        } else {
+        }
 
-            // AtLeast veya Exactly modlarında doğrudan pt değeri
+        // 5. Kural belirtilmemişse pt değerine bak
+
+        else {
 
             isValidSpacing = lineSpacing >= EBYÜ_RULES.LINE_SPACING_1_5_MIN && lineSpacing <= EBYÜ_RULES.LINE_SPACING_1_5_MAX;
 
@@ -1798,43 +1882,51 @@ function validateBodyText(paraData, index) {
 
 
 
-    // Paragraph spacing: 6pt before and after
+    // PARAGRAPH SPACING: 6nk (4-8 arası kabul)
 
-    if (spaceBefore !== undefined && Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
+    if (spaceBefore !== undefined && spaceBefore !== null) {
 
-        errors.push({
+        if (spaceBefore < EBYÜ_RULES.SPACING_6NK_MIN || spaceBefore > EBYÜ_RULES.SPACING_6NK_MAX) {
 
-            type: 'warning',
+            errors.push({
 
-            title: 'Metin: Paragraf Öncesi',
+                type: 'warning',
 
-            description: `6 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} nk`,
+                title: 'Metin: Paragraf Öncesi',
 
-            paraIndex: index,
+                description: `6 nk olmalı (${EBYÜ_RULES.SPACING_6NK_MIN}-${EBYÜ_RULES.SPACING_6NK_MAX} kabul). Mevcut: ${spaceBefore.toFixed(1)} pt`,
 
-            severity: 'FORMAT'
+                paraIndex: index,
 
-        });
+                severity: 'FORMAT'
+
+            });
+
+        }
 
     }
 
 
 
-    if (spaceAfter !== undefined && Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
+    if (spaceAfter !== undefined && spaceAfter !== null) {
 
-        errors.push({
+        if (spaceAfter < EBYÜ_RULES.SPACING_6NK_MIN || spaceAfter > EBYÜ_RULES.SPACING_6NK_MAX) {
 
-            type: 'warning',
+            errors.push({
 
-            title: 'Metin: Paragraf Sonrası',
+                type: 'warning',
 
-            description: `6 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} nk`,
+                title: 'Metin: Paragraf Sonrası',
 
-            paraIndex: index,
+                description: `6 nk olmalı (${EBYÜ_RULES.SPACING_6NK_MIN}-${EBYÜ_RULES.SPACING_6NK_MAX} kabul). Mevcut: ${spaceAfter.toFixed(1)} pt`,
 
-            severity: 'FORMAT'
+                paraIndex: index,
 
-        });
+                severity: 'FORMAT'
+
+            });
+
+        }
 
     }
 
@@ -2234,6 +2326,18 @@ function validateCoverPage(paraData, index) {
 
 
 
+    // DEBUG LOG: Kapak sayfası boşluk değerleri
+
+    console.log(`[COVER DEBUG] Paragraf ${index + 1}: "${trimmed.substring(0, 25)}..."`);
+
+    console.log(`  - spaceBefore: ${spaceBefore} pt`);
+
+    console.log(`  - spaceAfter: ${spaceAfter} pt`);
+
+    console.log(`  - lineSpacing: ${paraData.lineSpacing} pt`);
+
+
+
     // Cover title should be 16pt (main titles on cover)
 
     const isMainCoverTitle = /^(T\.?C\.?|ERZİNCAN|ÜNİVERSİTESİ|ENSTİTÜSÜ|TEZİ)$/i.test(trimmed) ||
@@ -2284,43 +2388,57 @@ function validateCoverPage(paraData, index) {
 
 
 
-    // Cover spacing should be 0nk
+    // Cover spacing should be 0nk (0-2 arası kabul)
 
-    if (spaceBefore !== undefined && spaceBefore > EBYÜ_RULES.SPACING_TOLERANCE) {
+    // Word bazen tam 0 yerine küsuratlı değer verebilir
 
-        errors.push({
+    if (spaceBefore !== undefined && spaceBefore !== null) {
 
-            type: 'warning',
+        if (spaceBefore < EBYÜ_RULES.SPACING_0NK_MIN || spaceBefore > EBYÜ_RULES.SPACING_0NK_MAX) {
 
-            title: 'KAPAK: Paragraf Öncesi Boşluk',
+            errors.push({
 
-            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} nk`,
+                type: 'warning',
 
-            paraIndex: index,
+                title: 'KAPAK: Paragraf Öncesi Boşluk',
 
-            severity: 'FORMAT'
+                description: `Kapakta 0 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} pt`,
 
-        });
+                paraIndex: index,
+
+                severity: 'FORMAT'
+
+            });
+
+            console.log(`  - ⚠️ spaceBefore hatalı: ${spaceBefore} (beklenen: 0-${EBYÜ_RULES.SPACING_0NK_MAX})`);
+
+        }
 
     }
 
 
 
-    if (spaceAfter !== undefined && spaceAfter > EBYÜ_RULES.SPACING_TOLERANCE) {
+    if (spaceAfter !== undefined && spaceAfter !== null) {
 
-        errors.push({
+        if (spaceAfter < EBYÜ_RULES.SPACING_0NK_MIN || spaceAfter > EBYÜ_RULES.SPACING_0NK_MAX) {
 
-            type: 'warning',
+            errors.push({
 
-            title: 'KAPAK: Paragraf Sonrası Boşluk',
+                type: 'warning',
 
-            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} nk`,
+                title: 'KAPAK: Paragraf Sonrası Boşluk',
 
-            paraIndex: index,
+                description: `Kapakta 0 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} pt`,
 
-            severity: 'FORMAT'
+                paraIndex: index,
 
-        });
+                severity: 'FORMAT'
+
+            });
+
+            console.log(`  - ⚠️ spaceAfter hatalı: ${spaceAfter} (beklenen: 0-${EBYÜ_RULES.SPACING_0NK_MAX})`);
+
+        }
 
     }
 
