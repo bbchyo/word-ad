@@ -54,7 +54,7 @@ const EBYÜ_RULES = {
 
     MARGIN_TOP_SPECIAL_POINTS: 198.45, // 7cm for Main Chapter Starts
 
-    MARGIN_TOLERANCE: 2, // ±2pt tolerans (daha dar)
+    MARGIN_TOLERANCE: 3, // ±3pt tolerans (Gevşetildi)
 
 
 
@@ -94,7 +94,7 @@ const EBYÜ_RULES = {
 
     BIBLIOGRAPHY_HANGING_INDENT_POINTS: 28.35, // 1cm
 
-    INDENT_TOLERANCE: 2.5,
+    INDENT_TOLERANCE: 5.0, // Gevşetildi: ±5pt (Mac/Word uyumsuzlukları için)
 
 
 
@@ -106,7 +106,7 @@ const EBYÜ_RULES = {
 
     SPACING_0NK: 0,
 
-    SPACING_TOLERANCE: 2, // Artırıldı: Word küsuratlı değer verebilir
+    SPACING_TOLERANCE: 2.5, // Gevşetildi
 
 
 
@@ -114,23 +114,23 @@ const EBYÜ_RULES = {
 
     SPACING_0NK_MIN: 0,
 
-    SPACING_0NK_MAX: 2,  // 0nk için 0-2 arası kabul
+    SPACING_0NK_MAX: 3,  // 0nk için 0-3 arası kabul (Gevşetildi)
 
-    SPACING_6NK_MIN: 4,
+    SPACING_6NK_MIN: 3,  // 6nk için 3-9 arası kabul (Gevşetildi)
 
-    SPACING_6NK_MAX: 8,  // 6nk için 4-8 arası kabul
+    SPACING_6NK_MAX: 9,
 
 
 
     // Line Spacing
 
-    LINE_SPACING_1_5_MIN: 17,
+    LINE_SPACING_1_5_MIN: 15, // Gevşetildi: 15-24 arası
 
-    LINE_SPACING_1_5_MAX: 22, // Artırıldı: daha geniş tolerans
+    LINE_SPACING_1_5_MAX: 24,
 
-    LINE_SPACING_SINGLE_MIN: 11,
+    LINE_SPACING_SINGLE_MIN: 10,
 
-    LINE_SPACING_SINGLE_MAX: 14,
+    LINE_SPACING_SINGLE_MAX: 15,
 
 
 
@@ -433,6 +433,56 @@ function logStep(category, message, details = null) {
     scanLog.push({ timestamp, category, message, details });
 
     console.log(`[${category}] ${message}`, details || '');
+
+}
+
+
+
+// ON-SCREEN LOGGER: Console.log outputs to UI div
+
+function initOnScreenLogger() {
+
+    const originalLog = console.log;
+
+    const logDiv = document.getElementById('debugLog');
+
+
+
+    if (logDiv) {
+
+        console.log = function (...args) {
+
+            originalLog.apply(console, args); // Keep original console working
+
+
+
+            // Append to div
+
+            const msg = args.map(arg =>
+
+                typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+
+            ).join(' ');
+
+
+
+            const p = document.createElement('div');
+
+            p.style.borderBottom = '1px solid #eee';
+
+            p.style.padding = '2px';
+
+            p.textContent = `> ${msg}`;
+
+            logDiv.appendChild(p);
+
+            logDiv.scrollTop = logDiv.scrollHeight; // Auto scroll
+
+        };
+
+        console.log("On-Screen Logger Initialized");
+
+    }
 
 }
 
@@ -1878,9 +1928,9 @@ function validateBodyText(paraData, index) {
 
     // Font boyutuna göre beklenen 1.5 satır aralığı hesapla
 
-    const expectedMin = fontSize * 1.3; // Alt sınır
+    const expectedMin = fontSize * 1.2; // Alt sınır (Gevşetildi: 1.3 -> 1.2)
 
-    const expectedMax = fontSize * 1.7; // Üst sınır
+    const expectedMax = fontSize * 1.8; // Üst sınır (Gevşetildi: 1.7 -> 1.8)
 
 
 
@@ -3734,7 +3784,9 @@ Office.onReady((info) => {
 
     if (info.host === Office.HostType.Word) {
 
-        console.log('EBYÜ Thesis Validator v4.0 (Enhanced with Tables/Images/PageNum): Office.js initialized');
+        initOnScreenLogger(); // Initialize On-Screen Logger for Mac debugging
+
+        console.log('EBYÜ Thesis Validator v4.0 (Mac Fix): Office.js initialized');
 
         initializeUI();
 
