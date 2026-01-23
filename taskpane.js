@@ -247,6 +247,31 @@ function isCoverItem(text) {
     return matchesAnyPattern(text, PATTERNS.COVER_IDENTIFIERS);
 }
 
+/**
+ * Check if alignment is centered - handles Word.Alignment enum variations
+ * Word.Alignment.centered can be: "Centered", "centered", 2, or the enum value
+ */
+function isCentered(alignment) {
+    if (alignment === undefined || alignment === null) return true; // Skip check if undefined
+
+    // String comparison (case-insensitive)
+    if (typeof alignment === 'string') {
+        return alignment.toLowerCase() === 'centered';
+    }
+
+    // Numeric comparison (Word.Alignment.centered = 2)
+    if (typeof alignment === 'number') {
+        return alignment === 2;
+    }
+
+    // Direct enum comparison
+    if (alignment === Word.Alignment.centered) {
+        return true;
+    }
+
+    return false;
+}
+
 function isHeadingStyle(style) {
     if (!style) return false;
     const s = style.toLowerCase();
@@ -672,7 +697,7 @@ function validateMainHeading(paraData, index) {
     }
 
     // Centered
-    if (alignment !== 'Centered' && alignment !== Word.Alignment.centered) {
+    if (!isCentered(alignment)) {
         errors.push({
             type: 'warning',
             title: 'Ana Başlık: Hizalama',
@@ -961,7 +986,7 @@ function validateCaption(paraData, index) {
     }
 
     // Centered
-    if (alignment !== 'Centered' && alignment !== Word.Alignment.centered) {
+    if (!isCentered(alignment)) {
         errors.push({
             type: 'warning',
             title: 'Başlık: Hizalama',
@@ -1022,7 +1047,7 @@ function validateCoverPage(paraData, index) {
     }
 
     // Cover should be centered
-    if (alignment !== 'Centered' && alignment !== Word.Alignment.centered) {
+    if (!isCentered(alignment)) {
         errors.push({
             type: 'warning',
             title: 'KAPAK: Hizalama',
@@ -1085,9 +1110,7 @@ async function validateTables(context) {
             await context.sync();
 
             // Check alignment - must be centered
-            if (table.alignment &&
-                table.alignment !== 'Centered' &&
-                table.alignment !== Word.Alignment.centered &&
+            if (table.alignment && !isCentered(table.alignment) &&
                 table.alignment !== 'Mixed' &&
                 table.alignment !== 'Unknown') {
 
@@ -1143,9 +1166,7 @@ async function validateImages(context) {
             const alignment = pic.paragraph.alignment;
 
             // Images should be centered
-            if (alignment &&
-                alignment !== 'Centered' &&
-                alignment !== Word.Alignment.centered) {
+            if (alignment && !isCentered(alignment)) {
 
                 errors.push({
                     type: 'warning',
