@@ -54,7 +54,7 @@ const EBYÜ_RULES = {
 
     MARGIN_TOP_SPECIAL_POINTS: 198.45, // 7cm for Main Chapter Starts
 
-    MARGIN_TOLERANCE: 3, // ±3pt tolerans (~1mm)
+    MARGIN_TOLERANCE: 2, // ±2pt tolerans (daha dar)
 
 
 
@@ -1804,11 +1804,39 @@ function validateBodyText(paraData, index) {
 
 
 
+    // REGEX TABİ MANUEL GİRİNTİ TESPİTİ
+
+    // Satır başında Tab veya 2+ boşluk varsa hata ver
+
+    const manualIndentPattern = /^[\t\s]{2,}/;
+
+    if (manualIndentPattern.test(text)) {
+
+        console.log(`    ⚠️ Manuel girinti tespit edildi (regex): "${text.substring(0, 20)}..."`);
+
+        errors.push({
+
+            type: 'warning',
+
+            title: 'Metin: Manuel Girinti (Tab/Boşluk)',
+
+            description: 'Girinti için Tab veya Boşluk tuşu kullanmayın, Paragraf Ayarlarını kullanın.',
+
+            paraIndex: index,
+
+            severity: 'FORMAT'
+
+        });
+
+    }
+
+
+
     // Line spacing: 1.5 satır
 
     // lineSpacingRule: "AtLeast", "Exactly", "Multiple", "Single", "OneAndOneHalf" olabilir
 
-    // 1.5 satır aralığı genellikle ~18pt civarıdır (12pt font * 1.5)
+    // 1.5 satır aralığı = Font boyutu * 1.5 (12pt için ~18pt)
 
     // Multiple modunda lineSpacing değeri pt cinsinden verilir
 
@@ -1818,11 +1846,23 @@ function validateBodyText(paraData, index) {
 
         const rule = paraData.lineSpacingRule;
 
+        const fontSize = font.size || 12; // Varsayılan 12pt
+
         let isValidSpacing = false;
 
 
 
-        console.log(`  - [LINE SPACING CHECK] rule: ${rule}, lineSpacing: ${lineSpacing}`);
+        // Font boyutuna göre beklenen 1.5 satır aralığı hesapla
+
+        const expectedMin = fontSize * 1.3; // Alt sınır
+
+        const expectedMax = fontSize * 1.7; // Üst sınır
+
+
+
+        console.log(`  - [LINE SPACING CHECK] rule: ${rule}, lineSpacing: ${lineSpacing}, fontSize: ${fontSize}`);
+
+        console.log(`    Beklenen aralık (font * 1.3-1.7): ${expectedMin.toFixed(1)} - ${expectedMax.toFixed(1)} pt`);
 
 
 
@@ -1836,19 +1876,15 @@ function validateBodyText(paraData, index) {
 
         }
 
-        // 2. Multiple modunda değer kontrolü (17-22 pt arası kabul - 1.5 satıra denk gelir)
+        // 2. Multiple modunda değer kontrolü (font * 1.3 ile font * 1.7 arası kabul)
 
         else if (rule === 'Multiple' || rule === Word.LineSpacingRule.multiple) {
 
-            // Multiple modunda lineSpacing pt cinsinden veriliyor (1.5 satır ≈ 18pt)
+            // Multiple modunda lineSpacing pt cinsinden veriliyor
 
-            // Hem çarpan (1.4-1.6) hem de pt değeri (17-22) kabul ediliyor
+            isValidSpacing = (lineSpacing >= expectedMin && lineSpacing <= expectedMax);
 
-            isValidSpacing = (lineSpacing >= 1.4 && lineSpacing <= 1.6) ||
-
-                (lineSpacing >= EBYÜ_RULES.LINE_SPACING_1_5_MIN && lineSpacing <= EBYÜ_RULES.LINE_SPACING_1_5_MAX);
-
-            console.log(`    ${isValidSpacing ? '✓' : '✗'} Multiple rule - ${lineSpacing}pt (beklenen: 17-22pt veya 1.4-1.6 çarpan)`);
+            console.log(`    ${isValidSpacing ? '✓' : '✗'} Multiple rule - ${lineSpacing}pt (beklenen: ${expectedMin.toFixed(1)}-${expectedMax.toFixed(1)}pt)`);
 
         }
 
@@ -1858,9 +1894,9 @@ function validateBodyText(paraData, index) {
 
             rule === Word.LineSpacingRule.atLeast || rule === Word.LineSpacingRule.exactly) {
 
-            isValidSpacing = lineSpacing >= EBYÜ_RULES.LINE_SPACING_1_5_MIN && lineSpacing <= EBYÜ_RULES.LINE_SPACING_1_5_MAX;
+            isValidSpacing = (lineSpacing >= expectedMin && lineSpacing <= expectedMax);
 
-            console.log(`    ${isValidSpacing ? '✓' : '✗'} ${rule} rule - ${lineSpacing}pt (beklenen: 17-22pt)`);
+            console.log(`    ${isValidSpacing ? '✓' : '✗'} ${rule} rule - ${lineSpacing}pt (beklenen: ${expectedMin.toFixed(1)}-${expectedMax.toFixed(1)}pt)`);
 
         }
 
@@ -1880,9 +1916,9 @@ function validateBodyText(paraData, index) {
 
         else {
 
-            isValidSpacing = lineSpacing >= EBYÜ_RULES.LINE_SPACING_1_5_MIN && lineSpacing <= EBYÜ_RULES.LINE_SPACING_1_5_MAX;
+            isValidSpacing = (lineSpacing >= expectedMin && lineSpacing <= expectedMax);
 
-            console.log(`    ${isValidSpacing ? '✓' : '✗'} Unknown/null rule - ${lineSpacing}pt (beklenen: 17-22pt)`);
+            console.log(`    ${isValidSpacing ? '✓' : '✗'} Unknown/null rule - ${lineSpacing}pt (beklenen: ${expectedMin.toFixed(1)}-${expectedMax.toFixed(1)}pt)`);
 
         }
 
@@ -2460,7 +2496,7 @@ function validateCoverPage(paraData, index) {
 
 
 
-    // Cover spacing should be 0nk (0-2 arası kabul)
+    // Cover spacing should be 0nk (0-2 arası kabul, undefined da kabul)
 
     // Word bazen tam 0 yerine küsuratlı değer verebilir
 
@@ -2468,69 +2504,109 @@ function validateCoverPage(paraData, index) {
 
 
 
-    if (spaceBefore !== undefined && spaceBefore !== null) {
+    // 0nk için: undefined veya 2'den küçük değerler kabul
 
-        const isValidBefore = spaceBefore >= EBYÜ_RULES.SPACING_0NK_MIN && spaceBefore <= EBYÜ_RULES.SPACING_0NK_MAX;
+    if (spaceBefore !== undefined && spaceBefore !== null && spaceBefore > EBYÜ_RULES.SPACING_0NK_MAX) {
 
-        console.log(`    spaceBefore ${spaceBefore}pt: ${isValidBefore ? '✓ VALID' : '✗ INVALID'} (beklenen: 0-${EBYÜ_RULES.SPACING_0NK_MAX})`);
+        console.log(`    spaceBefore ${spaceBefore}pt: ✗ INVALID (beklenen: <${EBYÜ_RULES.SPACING_0NK_MAX})`);
 
+        errors.push({
 
+            type: 'warning',
 
-        if (!isValidBefore) {
+            title: 'KAPAK: Paragraf Öncesi Boşluk',
 
-            errors.push({
+            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} pt`,
 
-                type: 'warning',
+            paraIndex: index,
 
-                title: 'KAPAK: Paragraf Öncesi Boşluk',
+            severity: 'FORMAT'
 
-                description: `Kapakta 0 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} pt`,
-
-                paraIndex: index,
-
-                severity: 'FORMAT'
-
-            });
-
-        }
+        });
 
     } else {
 
-        console.log(`    ⚠️ spaceBefore undefined/null - değer yüklenememiş olabilir!`);
+        console.log(`    spaceBefore ${spaceBefore ?? 'undefined'}pt: ✓ VALID`);
 
     }
 
 
 
-    if (spaceAfter !== undefined && spaceAfter !== null) {
+    if (spaceAfter !== undefined && spaceAfter !== null && spaceAfter > EBYÜ_RULES.SPACING_0NK_MAX) {
 
-        const isValidAfter = spaceAfter >= EBYÜ_RULES.SPACING_0NK_MIN && spaceAfter <= EBYÜ_RULES.SPACING_0NK_MAX;
+        console.log(`    spaceAfter ${spaceAfter}pt: ✗ INVALID (beklenen: <${EBYÜ_RULES.SPACING_0NK_MAX})`);
 
-        console.log(`    spaceAfter ${spaceAfter}pt: ${isValidAfter ? '✓ VALID' : '✗ INVALID'} (beklenen: 0-${EBYÜ_RULES.SPACING_0NK_MAX})`);
+        errors.push({
 
+            type: 'warning',
 
+            title: 'KAPAK: Paragraf Sonrası Boşluk',
 
-        if (!isValidAfter) {
+            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} pt`,
 
-            errors.push({
+            paraIndex: index,
 
-                type: 'warning',
+            severity: 'FORMAT'
 
-                title: 'KAPAK: Paragraf Sonrası Boşluk',
-
-                description: `Kapakta 0 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} pt`,
-
-                paraIndex: index,
-
-                severity: 'FORMAT'
-
-            });
-
-        }
+        });
 
     } else {
 
-        console.log(`    ⚠️ spaceAfter undefined/null - değer yüklenememiş olabilir!`);
+        console.log(`    spaceAfter ${spaceAfter ?? 'undefined'}pt: ✓ VALID`);
+
+    }
+
+
+
+    // KAPAK: Manuel Tab veya Çoklu Boşluk ile Girinti Kontrolü
+
+    // Regex: Satır başında Tab veya 2+ boşluk varsa hata ver
+
+    const manualIndentPattern = /^[\t\s]{2,}/;
+
+    if (manualIndentPattern.test(text)) {
+
+        console.log(`    ⚠️ Manuel girinti tespit edildi: "${text.substring(0, 20)}..."`);
+
+        errors.push({
+
+            type: 'warning',
+
+            title: 'KAPAK: Manuel Girinti',
+
+            description: 'Girinti için Tab veya Boşluk tuşu kullanmayın, Paragraf Ayarlarını kullanın.',
+
+            paraIndex: index,
+
+            severity: 'FORMAT'
+
+        });
+
+    }
+
+
+
+    // KAPAK: firstLineIndent kontrolü (kapakta girinti olmamalı)
+
+    const firstLineIndent = paraData.firstLineIndent;
+
+    if (firstLineIndent !== undefined && firstLineIndent !== null && Math.abs(firstLineIndent) > 2) {
+
+        console.log(`    firstLineIndent ${firstLineIndent}pt: ✗ INVALID (kapakta 0 olmalı)`);
+
+        errors.push({
+
+            type: 'warning',
+
+            title: 'KAPAK: İlk Satır Girintisi',
+
+            description: `Kapakta girinti olmamalı. Mevcut: ${(firstLineIndent / 28.35).toFixed(2)} cm`,
+
+            paraIndex: index,
+
+            severity: 'FORMAT'
+
+        });
 
     }
 
