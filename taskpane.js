@@ -732,9 +732,11 @@ function detectParagraphType(paraData, zone, isInBiblio) {
 
     // Priority 7: Main Heading (outlineLevel, ListItem, or text pattern)
 
-    // ListItem detection: "1." format = main heading
+    // If isListItem is true AND text starts with "1." pattern, it's a numbered main heading
 
-    const isMainByListItem = paraData.isListItem && paraData.listString && /^\d+\.$/.test(paraData.listString.trim());
+    const textStartsWithMainNumber = /^\d+\.\s+/.test(trimmed);
+
+    const isMainByListItem = paraData.isListItem && textStartsWithMainNumber;
 
     const isMainByOutline = outlineLevel === 0 || outlineLevel === 1;
 
@@ -754,9 +756,11 @@ function detectParagraphType(paraData, zone, isInBiblio) {
 
     // Priority 8: Sub-Heading (ListItem with "1.1." format or outlineLevel 2-8)
 
-    // ListItem detection: "1.1." or "1.1.1." format = sub-heading
+    // If isListItem is true AND text starts with "1.1." pattern, it's a numbered sub-heading
 
-    const isSubByListItem = paraData.isListItem && paraData.listString && /^\d+\.\d+(\.\d+)*\.?$/.test(paraData.listString.trim());
+    const textStartsWithSubNumber = /^\d+\.\d+(\.\d+)*\.?\s+/.test(trimmed);
+
+    const isSubByListItem = paraData.isListItem && textStartsWithSubNumber;
 
     const isSubByOutline = typeof outlineLevel === 'number' && outlineLevel >= 2 && outlineLevel <= 8;
 
@@ -2770,7 +2774,7 @@ async function scanDocument() {
 
             // BATCH LOAD: Load all paragraph properties at once
 
-            // Including ListItem properties for numbered heading detection
+            // Note: listItem properties are loaded separately for list items only
 
             paragraphs.load([
 
@@ -2783,12 +2787,6 @@ async function scanDocument() {
                 'items/tableNestingLevel',
 
                 'items/isListItem',
-
-                'items/listItem/listString',
-
-                'items/listItem/level',
-
-                'items/listItem/siblingIndex',
 
                 'items/font/name',
 
@@ -2868,6 +2866,8 @@ async function scanDocument() {
 
                 // ListItem info (for numbered headings)
 
+                // Note: We only use isListItem boolean, listItem properties require separate load
+
                 let listItemInfo = {
 
                     isListItem: false,
@@ -2884,25 +2884,21 @@ async function scanDocument() {
 
                 try {
 
-                    if (p.isListItem) {
+                    // isListItem is already loaded in batch
+
+                    if (p.isListItem === true) {
 
                         listItemInfo.isListItem = true;
 
-                        if (p.listItem) {
+                        // listItem properties would need separate load/sync
 
-                            listItemInfo.listString = p.listItem.listString;
-
-                            listItemInfo.listLevel = p.listItem.level;
-
-                            listItemInfo.siblingIndex = p.listItem.siblingIndex;
-
-                        }
+                        // For now, we detect numbering from text patterns instead
 
                     }
 
                 } catch (e) {
 
-                    // ListItem not available for this paragraph
+                    // isListItem not available for this paragraph
 
                 }
 
