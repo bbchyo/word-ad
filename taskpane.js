@@ -732,11 +732,13 @@ function detectParagraphType(paraData, zone, isInBiblio) {
 
     // Priority 7: Main Heading (outlineLevel, ListItem, or text pattern)
 
-    // If isListItem is true AND text starts with "1." pattern, it's a numbered main heading
+    // listString: Word'ün otomatik numaralandırma değeri (örn: "1.", "2.")
 
-    const textStartsWithMainNumber = /^\d+\.\s+/.test(trimmed);
+    // Elle yazılan "1." ile Word numaralandırması arasındaki farkı listString ile anlıyoruz
 
-    const isMainByListItem = paraData.isListItem && textStartsWithMainNumber;
+    const hasMainListNumber = paraData.listString && /^\d+\.$/.test(paraData.listString.trim());
+
+    const isMainByListItem = paraData.isListItem && hasMainListNumber;
 
     const isMainByOutline = outlineLevel === 0 || outlineLevel === 1;
 
@@ -756,11 +758,11 @@ function detectParagraphType(paraData, zone, isInBiblio) {
 
     // Priority 8: Sub-Heading (ListItem with "1.1." format or outlineLevel 2-8)
 
-    // If isListItem is true AND text starts with "1.1." pattern, it's a numbered sub-heading
+    // listString: Word'ün otomatik numaralandırma değeri (örn: "1.1.", "2.3.1.")
 
-    const textStartsWithSubNumber = /^\d+\.\d+(\.\d+)*\.?\s+/.test(trimmed);
+    const hasSubListNumber = paraData.listString && /^\d+\.\d+(\.\d+)*\.?$/.test(paraData.listString.trim());
 
-    const isSubByListItem = paraData.isListItem && textStartsWithSubNumber;
+    const isSubByListItem = paraData.isListItem && hasSubListNumber;
 
     const isSubByOutline = typeof outlineLevel === 'number' && outlineLevel >= 2 && outlineLevel <= 8;
 
@@ -1716,23 +1718,81 @@ function validateBodyText(paraData, index) {
 
 
 
-    // Line spacing: 1.5 (17-19pt)
+    // Line spacing: 1.5 satır
 
-    if (lineSpacing !== undefined && (lineSpacing < EBYÜ_RULES.LINE_SPACING_1_5_MIN || lineSpacing > EBYÜ_RULES.LINE_SPACING_1_5_MAX)) {
+    // lineSpacingRule: "AtLeast", "Exactly", "Multiple", "Single" olabilir
 
-        errors.push({
+    // 1.5 satır aralığı genellikle ~18pt civarıdır (12pt font * 1.5)
 
-            type: 'warning',
+    // Multiple modunda lineSpacing değeri çarpan olarak kullanılır
 
-            title: 'Metin: Satır Aralığı',
 
-            description: `1.5 satır (17-19 pt) olmalı. Mevcut: ${lineSpacing.toFixed(1)} pt`,
 
-            paraIndex: index,
+    if (lineSpacing !== undefined) {
 
-            severity: 'FORMAT'
+        const rule = paraData.lineSpacingRule;
 
-        });
+        let isValidSpacing = false;
+
+
+
+        if (rule === 'Multiple' || rule === Word.LineSpacingRule.multiple) {
+
+            // Multiple modunda lineSpacing değeri çarpan (1.0, 1.5, 2.0 gibi)
+
+            // 1.5 satır = lineSpacing ~1.5 veya ~18pt (12*1.5)
+
+            isValidSpacing = (lineSpacing >= 1.4 && lineSpacing <= 1.6) ||
+
+                (lineSpacing >= EBYÜ_RULES.LINE_SPACING_1_5_MIN && lineSpacing <= EBYÜ_RULES.LINE_SPACING_1_5_MAX);
+
+        } else if (rule === 'Single' || rule === Word.LineSpacingRule.single) {
+
+            // Tek satır - 1.5 satır değil
+
+            isValidSpacing = false;
+
+        } else {
+
+            // AtLeast veya Exactly modlarında doğrudan pt değeri
+
+            isValidSpacing = lineSpacing >= EBYÜ_RULES.LINE_SPACING_1_5_MIN && lineSpacing <= EBYÜ_RULES.LINE_SPACING_1_5_MAX;
+
+        }
+
+
+
+        if (!isValidSpacing) {
+
+            let currentValue = '';
+
+            if (rule === 'Multiple' && lineSpacing < 5) {
+
+                currentValue = `${lineSpacing.toFixed(2)} satır`;
+
+            } else {
+
+                currentValue = `${lineSpacing.toFixed(1)} pt`;
+
+            }
+
+
+
+            errors.push({
+
+                type: 'warning',
+
+                title: 'Metin: Satır Aralığı',
+
+                description: `1.5 satır aralığı olmalı. Mevcut: ${currentValue} (Kural: ${rule || 'belirtilmemiş'})`,
+
+                paraIndex: index,
+
+                severity: 'FORMAT'
+
+            });
+
+        }
 
     }
 
@@ -2774,7 +2834,7 @@ async function scanDocument() {
 
             // BATCH LOAD: Load all paragraph properties at once
 
-            // Note: listItem properties are loaded separately for list items only
+            // Using listItemOrNullObject for safe access (no ItemNotFound errors)
 
             paragraphs.load([
 
@@ -2787,6 +2847,10 @@ async function scanDocument() {
                 'items/tableNestingLevel',
 
                 'items/isListItem',
+
+                'items/listItemOrNullObject/listString',
+
+                'items/listItemOrNullObject/level',
 
                 'items/font/name',
 
@@ -2864,41 +2928,33 @@ async function scanDocument() {
 
 
 
-                // ListItem info (for numbered headings)
+                // GÜVENLİ LİSTE VERİSİ OKUMA (listItemOrNullObject pattern)
 
-                // Note: We only use isListItem boolean, listItem properties require separate load
+                // listItemOrNullObject hata fırlatmaz, isNullObject true ise liste değildir
 
-                let listItemInfo = {
+                let listString = '';
 
-                    isListItem: false,
+                let listLevel = null;
 
-                    listString: null,
-
-                    listLevel: null,
-
-                    siblingIndex: null
-
-                };
+                let isList = false;
 
 
 
                 try {
 
-                    // isListItem is already loaded in batch
+                    if (p.listItemOrNullObject && !p.listItemOrNullObject.isNullObject) {
 
-                    if (p.isListItem === true) {
+                        isList = true;
 
-                        listItemInfo.isListItem = true;
+                        listString = p.listItemOrNullObject.listString || '';
 
-                        // listItem properties would need separate load/sync
-
-                        // For now, we detect numbering from text patterns instead
+                        listLevel = p.listItemOrNullObject.level;
 
                     }
 
                 } catch (e) {
 
-                    // isListItem not available for this paragraph
+                    // listItemOrNullObject not available
 
                 }
 
@@ -2926,15 +2982,13 @@ async function scanDocument() {
 
                     consecutiveTabsAtStart: tabInfo.consecutiveTabsAtStart,
 
-                    // ListItem (numbered heading) detection
+                    // ListItem (numbered heading) detection - using listItemOrNullObject
 
-                    isListItem: listItemInfo.isListItem,
+                    isListItem: isList,
 
-                    listString: listItemInfo.listString,
+                    listString: listString,  // "1.", "1.1." gibi değerler
 
-                    listLevel: listItemInfo.listLevel,
-
-                    siblingIndex: listItemInfo.siblingIndex,
+                    listLevel: listLevel,
 
                     // Font info
 
