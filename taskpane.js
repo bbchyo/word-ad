@@ -1422,24 +1422,14 @@ async function scanDocument() {
                 }
 
                 // Add errors and apply highlights + comments
+                let hasCriticalError = false;
+
                 for (const err of errors) {
                     addResult(err.type, err.title, err.description, `Paragraf ${i + 1}`, err.paraIndex, err.severity);
 
-                    // Always highlight errors
-                    const highlightColor = err.severity === 'CRITICAL' || err.type === 'error'
-                        ? HIGHLIGHT_COLORS.CRITICAL
-                        : HIGHLIGHT_COLORS.FORMAT;
-
-                    // Apply highlight (critical overrides format)
-                    if (paraData.paragraph.font.highlightColor !== HIGHLIGHT_COLORS.CRITICAL) {
-                        paraData.paragraph.font.highlightColor = highlightColor;
-                    }
-
-                    // Add comment annotation for the error
-                    try {
-                        await addErrorComment(context, paraData.paragraph, `[EBYÜ Hata] ${err.title}: ${err.description}`);
-                    } catch (commentError) {
-                        // Silently fail if comments not supported
+                    // Track if we have a critical error
+                    if (err.severity === 'CRITICAL' || err.type === 'error') {
+                        hasCriticalError = true;
                     }
 
                     if (err.type === 'error') {
@@ -1447,6 +1437,14 @@ async function scanDocument() {
                     } else if (err.type === 'warning') {
                         warningCount++;
                     }
+                }
+
+                // Apply highlight ONCE after all errors checked (avoid reading highlightColor)
+                if (errors.length > 0) {
+                    const highlightColor = hasCriticalError
+                        ? HIGHLIGHT_COLORS.CRITICAL
+                        : HIGHLIGHT_COLORS.FORMAT;
+                    paraData.paragraph.font.highlightColor = highlightColor;
                 }
             }
 
