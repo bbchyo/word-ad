@@ -66,7 +66,25 @@ const EBYÜ_RULES = {
 
     // Page Dimensions (A4)
     PAGE_WIDTH_POINTS: 595.3,
-    PAGE_HEIGHT_POINTS: 841.9
+    PAGE_HEIGHT_POINTS: 841.9,
+
+    // Page Number Rules (Sayfa Numaralandırma)
+    PAGE_NUMBER_FOOTER_DISTANCE_POINTS: 35.4, // 1.25 cm
+    PAGE_NUMBER_SIZE: 10,
+
+    // Abstract Rules (Özet Sayfası)
+    ABSTRACT_MIN_WORDS: 200,
+    ABSTRACT_MAX_WORDS: 250,
+    ABSTRACT_MIN_KEYWORDS: 3,
+    ABSTRACT_MAX_KEYWORDS: 5,
+
+    // Thesis Length (Tez Uzunluğu)
+    MIN_PAGES_MASTERS: 50,
+    MIN_PAGES_PHD: 80,
+    MAX_PAGES_TOTAL: 500,
+
+    // Table Content Font Size
+    TABLE_CONTENT_SIZE: 11
 };
 
 // Highlight Colors
@@ -144,8 +162,32 @@ const PATTERNS = {
     COVER_IDENTIFIERS: [
         /^T\.?C\.?$/i,
         /^ERZİNCAN\s*BİNALİ\s*YILDIRIM/i,
-        /^ÜNİVERSİTESİ$/i
-    ]
+        /^ÜNİVERSİTESİ$/i,
+        /^(FEN|SOSYAL)\s*BİLİMLERİ\s*ENSTİTÜSÜ$/i,
+        /^(YÜKSEK\s*LİSANS|DOKTORA)\s*TEZİ$/i,
+        /^DANIŞMAN/i,
+        /^Tez\s*Danışmanı/i
+    ],
+
+    // Front matter (Roma rakamları - ÖN KISIM)
+    FRONT_MATTER_IDENTIFIERS: [
+        /^İÇİNDEKİLER$/i,
+        /^ÖN\s*SÖZ$/i,
+        /^ÖNSÖZ$/i,
+        /^TEŞEKKÜR$/i,
+        /^KISALTMALAR/i,
+        /^SİMGELER/i,
+        /^TABLOLAR\s*(LİSTESİ|DİZİNİ)?$/i,
+        /^ŞEKİLLER\s*(LİSTESİ|DİZİNİ)?$/i,
+        /^ÖZET$/i,
+        /^ABSTRACT$/i
+    ],
+
+    // Abstract patterns
+    ABSTRACT_TR: /^ÖZET$/i,
+    ABSTRACT_EN: /^ABSTRACT$/i,
+    KEYWORDS_TR: /^Anahtar\s*Kelimeler\s*:/i,
+    KEYWORDS_EN: /^Keywords\s*:/i
 };
 
 // ============================================
@@ -873,7 +915,314 @@ function validateCaption(paraData, index) {
         });
     }
 
+    // Caption spacing: 0nk before and after
+    if (paraData.spaceBefore !== undefined && paraData.spaceBefore > EBYÜ_RULES.SPACING_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'Tablo/Şekil Başlığı: Paragraf Öncesi',
+            description: `Şekil/Tablo başlıklarında 0 nk olmalı. Mevcut: ${paraData.spaceBefore.toFixed(1)} nk`,
+            paraIndex: index,
+            severity: 'FORMAT'
+        });
+    }
+
+    if (paraData.spaceAfter !== undefined && paraData.spaceAfter > EBYÜ_RULES.SPACING_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'Tablo/Şekil Başlığı: Paragraf Sonrası',
+            description: `Şekil/Tablo başlıklarında 0 nk olmalı. Mevcut: ${paraData.spaceAfter.toFixed(1)} nk`,
+            paraIndex: index,
+            severity: 'FORMAT'
+        });
+    }
+
     return errors;
+}
+
+// ============================================
+// COVER PAGE VALIDATION (Kapak Sayfası - 16pt, 0nk)
+// ============================================
+
+function validateCoverPage(paraData, index) {
+    const errors = [];
+    const { font, alignment, spaceBefore, spaceAfter, text } = paraData;
+    const trimmed = (text || '').trim();
+
+    // Skip empty paragraphs
+    if (trimmed.length === 0) return errors;
+
+    // Cover title should be 16pt (main titles on cover)
+    const isMainCoverTitle = /^(T\.?C\.?|ERZİNCAN|ÜNİVERSİTESİ|ENSTİTÜSÜ|TEZİ)$/i.test(trimmed) ||
+        trimmed.length > 20; // Thesis title
+
+    if (isMainCoverTitle && font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_COVER_TITLE) > 1) {
+        errors.push({
+            type: 'error',
+            title: 'KAPAK: Punto Hatası',
+            description: `Kapak başlıkları 16 punto olmalı. Mevcut: ${font.size} pt`,
+            paraIndex: index,
+            severity: 'CRITICAL'
+        });
+    }
+
+    // Cover should be centered
+    if (alignment !== 'Centered' && alignment !== Word.Alignment.centered) {
+        errors.push({
+            type: 'warning',
+            title: 'KAPAK: Hizalama',
+            description: 'Kapak öğeleri ortalanmış olmalı.',
+            paraIndex: index,
+            severity: 'FORMAT'
+        });
+    }
+
+    // Cover spacing should be 0nk
+    if (spaceBefore !== undefined && spaceBefore > EBYÜ_RULES.SPACING_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'KAPAK: Paragraf Öncesi Boşluk',
+            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} nk`,
+            paraIndex: index,
+            severity: 'FORMAT'
+        });
+    }
+
+    if (spaceAfter !== undefined && spaceAfter > EBYÜ_RULES.SPACING_TOLERANCE) {
+        errors.push({
+            type: 'warning',
+            title: 'KAPAK: Paragraf Sonrası Boşluk',
+            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} nk`,
+            paraIndex: index,
+            severity: 'FORMAT'
+        });
+    }
+
+    // Font must be Times New Roman
+    if (font.name && font.name !== EBYÜ_RULES.FONT_NAME) {
+        errors.push({
+            type: 'error',
+            title: 'KAPAK: Yazı Tipi',
+            description: `${EBYÜ_RULES.FONT_NAME} olmalı. Mevcut: ${font.name}`,
+            paraIndex: index,
+            severity: 'CRITICAL'
+        });
+    }
+
+    return errors;
+}
+
+// ============================================
+// TABLE ALIGNMENT VALIDATION (Tablo Hizalama)
+// ============================================
+
+async function validateTables(context) {
+    const errors = [];
+
+    try {
+        const tables = context.document.body.tables;
+        tables.load('items');
+        await context.sync();
+
+        for (let i = 0; i < tables.items.length; i++) {
+            const table = tables.items[i];
+            table.load(['alignment', 'font/size', 'font/name']);
+            await context.sync();
+
+            // Check alignment - must be centered
+            if (table.alignment &&
+                table.alignment !== 'Centered' &&
+                table.alignment !== Word.Alignment.centered &&
+                table.alignment !== 'Mixed' &&
+                table.alignment !== 'Unknown') {
+
+                errors.push({
+                    type: 'warning',
+                    title: `Tablo ${i + 1}: Hizalama Hatası`,
+                    description: `Tablolar ortalanmış olmalı. Mevcut: ${table.alignment}`,
+                    severity: 'FORMAT',
+                    tableIndex: i
+                });
+
+                // Highlight table
+                table.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
+            }
+
+            // Check font size - table content should be 11pt
+            if (table.font.size && Math.abs(table.font.size - EBYÜ_RULES.TABLE_CONTENT_SIZE) > 0.5) {
+                errors.push({
+                    type: 'warning',
+                    title: `Tablo ${i + 1}: Punto Hatası`,
+                    description: `Tablo içeriği 11 punto olmalı. Mevcut: ${table.font.size} pt`,
+                    severity: 'FORMAT',
+                    tableIndex: i
+                });
+            }
+        }
+
+        logStep('TABLES', `Validated ${tables.items.length} tables, found ${errors.length} errors`);
+    } catch (error) {
+        logStep('TABLES', `Table validation error: ${error.message}`);
+    }
+
+    return errors;
+}
+
+// ============================================
+// IMAGE ALIGNMENT VALIDATION (Resim Hizalama)
+// ============================================
+
+async function validateImages(context) {
+    const errors = [];
+
+    try {
+        const pictures = context.document.body.inlinePictures;
+        pictures.load('items');
+        await context.sync();
+
+        for (let i = 0; i < pictures.items.length; i++) {
+            const pic = pictures.items[i];
+            pic.paragraph.load('alignment');
+            await context.sync();
+
+            const alignment = pic.paragraph.alignment;
+
+            // Images should be centered
+            if (alignment &&
+                alignment !== 'Centered' &&
+                alignment !== Word.Alignment.centered) {
+
+                errors.push({
+                    type: 'warning',
+                    title: `Resim ${i + 1}: Hizalama Hatası`,
+                    description: `Resimler ortalanmış olmalı. Mevcut: ${alignment}`,
+                    severity: 'FORMAT',
+                    pictureIndex: i
+                });
+
+                // Highlight the paragraph containing image
+                pic.paragraph.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
+            }
+        }
+
+        logStep('IMAGES', `Validated ${pictures.items.length} images, found ${errors.length} errors`);
+    } catch (error) {
+        logStep('IMAGES', `Image validation error: ${error.message}`);
+    }
+
+    return errors;
+}
+
+// ============================================
+// PAGE NUMBER VALIDATION (Sayfa No Kontrolü)
+// ============================================
+
+async function validatePageNumbers(context, sections) {
+    const errors = [];
+
+    try {
+        for (let i = 0; i < sections.items.length; i++) {
+            const section = sections.items[i];
+
+            try {
+                section.pageSetup.load('footerDistance');
+                await context.sync();
+
+                const footerDistance = section.pageSetup.footerDistance;
+
+                // Footer distance should be 1.25 cm (35.4 pt)
+                if (footerDistance !== undefined &&
+                    Math.abs(footerDistance - EBYÜ_RULES.PAGE_NUMBER_FOOTER_DISTANCE_POINTS) > EBYÜ_RULES.MARGIN_TOLERANCE) {
+
+                    errors.push({
+                        type: 'warning',
+                        title: `Bölüm ${i + 1}: Sayfa No Konumu`,
+                        description: `Sayfa numarası alt kenardan 1.25 cm yukarıda olmalı. Mevcut: ${(footerDistance / 28.35).toFixed(2)} cm`,
+                        location: `Bölüm ${i + 1}`,
+                        severity: 'FORMAT'
+                    });
+                }
+
+                // Check footer content for page number
+                const footer = section.getFooter("Primary");
+                footer.load('text');
+                await context.sync();
+
+                // Footer should contain page number (numeric content)
+                if (footer.text && footer.text.trim().length === 0) {
+                    errors.push({
+                        type: 'warning',
+                        title: `Bölüm ${i + 1}: Sayfa Numarası Eksik`,
+                        description: 'Alt bilgide sayfa numarası bulunamadı.',
+                        location: `Bölüm ${i + 1}`,
+                        severity: 'FORMAT'
+                    });
+                }
+            } catch (sectionError) {
+                logStep('PAGE_NUM', `Section ${i + 1} page number check failed: ${sectionError.message}`);
+            }
+        }
+
+        logStep('PAGE_NUM', `Validated page numbers, found ${errors.length} errors`);
+    } catch (error) {
+        logStep('PAGE_NUM', `Page number validation error: ${error.message}`);
+    }
+
+    return errors;
+}
+
+// ============================================
+// ABSTRACT VALIDATION (Özet Sayfası)
+// ============================================
+
+function validateAbstract(paraData, abstractParagraphs) {
+    const errors = [];
+
+    // Count total words in abstract
+    let totalWords = 0;
+    let abstractText = '';
+
+    for (const para of abstractParagraphs) {
+        const text = (para.text || '').trim();
+        if (text.length > 0 && !text.match(/^(ÖZET|ABSTRACT|Anahtar Kelimeler|Keywords)/i)) {
+            const words = text.split(/\s+/).filter(w => w.length > 0);
+            totalWords += words.length;
+            abstractText += text + ' ';
+        }
+    }
+
+    // Word count check: 200-250 words
+    if (totalWords < EBYÜ_RULES.ABSTRACT_MIN_WORDS) {
+        errors.push({
+            type: 'warning',
+            title: 'Özet: Kelime Sayısı Az',
+            description: `Özet en az ${EBYÜ_RULES.ABSTRACT_MIN_WORDS} kelime olmalı. Mevcut: ${totalWords} kelime`,
+            severity: 'FORMAT'
+        });
+    } else if (totalWords > EBYÜ_RULES.ABSTRACT_MAX_WORDS) {
+        errors.push({
+            type: 'warning',
+            title: 'Özet: Kelime Sayısı Fazla',
+            description: `Özet en fazla ${EBYÜ_RULES.ABSTRACT_MAX_WORDS} kelime olmalı. Mevcut: ${totalWords} kelime`,
+            severity: 'FORMAT'
+        });
+    }
+
+    return errors;
+}
+
+// ============================================
+// ADD ERROR COMMENT (Hata Yorumu Ekleme)
+// ============================================
+
+async function addErrorComment(context, paragraph, errorMessage) {
+    try {
+        const range = paragraph.getRange();
+        range.insertComment(errorMessage);
+        logStep('COMMENT', `Added comment: ${errorMessage.substring(0, 50)}...`);
+    } catch (error) {
+        // Comments may not be supported in all environments
+        logStep('COMMENT', `Could not add comment: ${error.message}`);
+    }
 }
 
 // ============================================
@@ -982,13 +1331,24 @@ async function scanDocument() {
                     updateProgress(progressPercent, `Paragraf ${i + 1} / ${paragraphDataList.length}`);
                 }
 
-                // Zone switching
+                // Zone switching - KAPAK -> ÖN KISIM (Roma) -> ANA METİN (Normal) -> KAYNAKÇA
+                // Cover ends when we see front matter items (İÇİNDEKİLER, ÖNSÖZ, etc.)
+                if (currentZone === ZONES.COVER && matchesAnyPattern(text, PATTERNS.FRONT_MATTER_IDENTIFIERS)) {
+                    currentZone = ZONES.FRONT_MATTER;
+                    logStep('ZONE', `Switched to FRONT_MATTER at paragraph ${i + 1}: "${text.substring(0, 30)}..."`);
+                }
+
+                // Body starts with GİRİŞ - Normal rakamlar başlar
                 if (matchesAnyPattern(text, PATTERNS.BODY_START)) {
                     currentZone = ZONES.BODY;
+                    logStep('ZONE', `Switched to BODY at paragraph ${i + 1}: "${text.substring(0, 30)}..."`);
                 }
+
+                // Back matter starts with KAYNAKÇA
                 if (matchesAnyPattern(text, PATTERNS.BACK_MATTER_START)) {
                     currentZone = ZONES.BACK_MATTER;
                     isInBiblio = true;
+                    logStep('ZONE', `Switched to BACK_MATTER at paragraph ${i + 1}: "${text.substring(0, 30)}..."`);
                 }
 
                 // Detect paragraph type
@@ -1028,30 +1388,73 @@ async function scanDocument() {
                     case PARA_TYPES.CAPTION_TITLE:
                         errors = validateCaption(paraData, i);
                         break;
+
+                    case PARA_TYPES.COVER_TEXT:
+                        errors = validateCoverPage(paraData, i);
+                        break;
                 }
 
-                // Add errors and apply highlights
+                // Add errors and apply highlights + comments
                 for (const err of errors) {
                     addResult(err.type, err.title, err.description, `Paragraf ${i + 1}`, err.paraIndex, err.severity);
 
+                    // Always highlight errors
+                    const highlightColor = err.severity === 'CRITICAL' || err.type === 'error'
+                        ? HIGHLIGHT_COLORS.CRITICAL
+                        : HIGHLIGHT_COLORS.FORMAT;
+
+                    // Apply highlight (critical overrides format)
+                    if (paraData.paragraph.font.highlightColor !== HIGHLIGHT_COLORS.CRITICAL) {
+                        paraData.paragraph.font.highlightColor = highlightColor;
+                    }
+
+                    // Add comment annotation for the error
+                    try {
+                        await addErrorComment(context, paraData.paragraph, `[EBYÜ Hata] ${err.title}: ${err.description}`);
+                    } catch (commentError) {
+                        // Silently fail if comments not supported
+                    }
+
                     if (err.type === 'error') {
                         errorCount++;
-                        paraData.paragraph.font.highlightColor = HIGHLIGHT_COLORS.CRITICAL;
                     } else if (err.type === 'warning') {
                         warningCount++;
-                        // Only highlight if not already critical
-                        if (paraData.paragraph.font.highlightColor !== HIGHLIGHT_COLORS.CRITICAL) {
-                            paraData.paragraph.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
-                        }
                     }
                 }
             }
 
-            // Step 6: Apply highlights
+            // Step 6: Validate Tables (Tablo Hizalama)
+            updateProgress(85, 'Tablolar kontrol ediliyor...');
+            const tableErrors = await validateTables(context);
+            for (const err of tableErrors) {
+                addResult(err.type, err.title, err.description, `Tablo ${err.tableIndex + 1}`, null, err.severity);
+                if (err.type === 'error') errorCount++;
+                else warningCount++;
+            }
+
+            // Step 7: Validate Images (Resim Hizalama)
+            updateProgress(88, 'Resimler kontrol ediliyor...');
+            const imageErrors = await validateImages(context);
+            for (const err of imageErrors) {
+                addResult(err.type, err.title, err.description, `Resim ${err.pictureIndex + 1}`, null, err.severity);
+                if (err.type === 'error') errorCount++;
+                else warningCount++;
+            }
+
+            // Step 8: Validate Page Numbers (Sayfa No Konumu)
+            updateProgress(91, 'Sayfa numaraları kontrol ediliyor...');
+            const pageNumErrors = await validatePageNumbers(context, sections);
+            for (const err of pageNumErrors) {
+                addResult(err.type, err.title, err.description, err.location, null, err.severity);
+                if (err.type === 'error') errorCount++;
+                else warningCount++;
+            }
+
+            // Step 9: Apply highlights
             updateProgress(95, 'İşaretler uygulanıyor...');
             await context.sync();
 
-            // Step 7: Summary
+            // Step 10: Summary
             updateProgress(98, 'Özet hazırlanıyor...');
 
             if (ghostCount > 0) {
@@ -1061,14 +1464,15 @@ async function scanDocument() {
             }
 
             const totalErrors = errorCount + marginErrors.filter(e => e.type === 'error').length;
-            const totalWarnings = warningCount + marginErrors.filter(e => e.type === 'warning').length;
+            const totalWarnings = warningCount + marginErrors.filter(e => e.type === 'warning').length +
+                tableErrors.length + imageErrors.length + pageNumErrors.length;
 
             if (totalErrors === 0 && totalWarnings === 0) {
                 addResult('success', '✅ Tebrikler!',
                     'Belge EBYÜ 2022 Tez Yazım Kılavuzu formatına uygun görünüyor.');
             } else {
                 addResult(totalErrors > 0 ? 'error' : 'warning', 'Tarama Özeti',
-                    `🔴 Kritik: ${totalErrors} | 🟡 Format: ${totalWarnings} hata bulundu.`);
+                    `🔴 Kritik: ${totalErrors} | 🟡 Format: ${totalWarnings} hata bulundu. Hatalı yerler belgede işaretlendi ve yorum eklendi.`);
             }
 
             updateProgress(100, 'Tarama tamamlandı!');
@@ -1094,7 +1498,7 @@ async function scanDocument() {
 
 Office.onReady((info) => {
     if (info.host === Office.HostType.Word) {
-        console.log('EBYÜ Thesis Validator v3.0 (Batch Optimized): Office.js initialized');
+        console.log('EBYÜ Thesis Validator v4.0 (Enhanced with Tables/Images/PageNum): Office.js initialized');
         initializeUI();
     } else {
         console.error('This add-in only works with Microsoft Word.');
