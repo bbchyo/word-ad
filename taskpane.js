@@ -374,54 +374,76 @@ function clearResults() {
 // ============================================
 
 function initializeUI() {
-    document.getElementById('scanButton').onclick = scanDocument;
-    document.getElementById('clearButton').onclick = clearHighlightsAndResults;
+    // Match index.html: id="scanBtn"
+    const scanBtn = document.getElementById('scanBtn');
+    if (scanBtn) {
+        scanBtn.onclick = scanDocument;
+    } else {
+        console.error('Scan button (scanBtn) not found!');
+    }
     logStep('UI', 'User interface initialized');
 }
 
 function setButtonState(enabled) {
-    const btn = document.getElementById('scanButton');
+    const btn = document.getElementById('scanBtn');
     if (btn) {
         btn.disabled = !enabled;
-        btn.textContent = enabled ? '🔍 Belgeyi Tara' : '⏳ Taranıyor...';
+        // Button has SVG + span structure in index.html
+        const textSpan = btn.querySelector('span');
+        if (textSpan) {
+            textSpan.textContent = enabled ? 'DÖKÜMAN TARA' : 'ARANIYOR...';
+        }
     }
 }
 
 function updateProgress(percent, message) {
-    const progressContainer = document.getElementById('progress-container');
-    const progressBar = document.getElementById('progress-bar');
-    const progressText = document.getElementById('progress-text');
+    // Match index.html: progressSection, progressFill, progressText
+    const progressContainer = document.getElementById('progressSection');
+    const progressBar = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
 
-    if (progressContainer) progressContainer.style.display = 'block';
+    if (progressContainer) {
+        progressContainer.classList.remove('hidden');
+    }
     if (progressBar) progressBar.style.width = `${percent}%`;
     if (progressText) progressText.textContent = message;
 }
 
 function hideProgress() {
-    const progressContainer = document.getElementById('progress-container');
-    if (progressContainer) progressContainer.style.display = 'none';
+    const progressContainer = document.getElementById('progressSection');
+    if (progressContainer) {
+        progressContainer.classList.add('hidden');
+    }
 }
 
 function displayResults() {
-    const resultsContainer = document.getElementById('results-container');
+    // Match index.html: resultsList, summarySection, errorCount, warningCount, successCount
+    const resultsContainer = document.getElementById('resultsList');
+    const summarySection = document.getElementById('summarySection');
+    const errorCountEl = document.getElementById('errorCount');
+    const warningCountEl = document.getElementById('warningCount');
+    const successCountEl = document.getElementById('successCount');
+
     if (!resultsContainer) return;
 
     if (validationResults.length === 0) {
-        resultsContainer.innerHTML = '<div class="result-item success">✅ Hiçbir hata bulunamadı.</div>';
+        resultsContainer.innerHTML = '<div class="empty-state"><p>✅ Hiçbir hata bulunamadı.</p></div>';
+        if (summarySection) summarySection.classList.add('hidden');
         return;
     }
+
+    // Show summary section
+    if (summarySection) summarySection.classList.remove('hidden');
 
     let html = '';
     const errors = validationResults.filter(r => r.type === 'error');
     const warnings = validationResults.filter(r => r.type === 'warning');
     const successes = validationResults.filter(r => r.type === 'success');
 
-    // Summary
-    html += `<div class="summary">
-        <span class="error-count">🔴 ${errors.length} Kritik</span>
-        <span class="warning-count">🟡 ${warnings.length} Format</span>
-        <span class="success-count">✅ ${successes.length} Başarılı</span>
-    </div>`;
+    // Update stat cards
+    if (errorCountEl) errorCountEl.textContent = errors.length;
+    if (warningCountEl) warningCountEl.textContent = warnings.length;
+    if (successCountEl) successCountEl.textContent = successes.length;
 
     // Errors first
     for (const result of errors) {
@@ -444,7 +466,7 @@ function createResultItem(result, type) {
         <div class="result-item ${type}">
             <div class="result-title">${result.title}</div>
             <div class="result-description">${result.description}</div>
-            <div class="result-location">${result.location}</div>
+            <div class="result-location">${result.location || ''}</div>
         </div>
     `;
 }
