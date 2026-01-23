@@ -1190,11 +1190,17 @@ async function validateSectionMargins(context, sections) {
 
     const marginErrors = [];
 
+    const pageSetups = []; // Store pageSetup references for reuse
+
 
 
     try {
 
-        // Batch load all section data
+        // Batch load all section data - ÖNEMLI: pageSetup referanslarını sakla
+
+        console.log(`[MARGIN DEBUG] Toplam ${sections.items.length} bölüm yükleniyor...`);
+
+
 
         for (let i = 0; i < sections.items.length; i++) {
 
@@ -1208,17 +1214,25 @@ async function validateSectionMargins(context, sections) {
 
                 pageSetup.load('topMargin, bottomMargin, leftMargin, rightMargin');
 
+                pageSetups.push(pageSetup); // Store reference
+
 
 
                 const body = section.body;
 
                 body.paragraphs.load('items');
 
+
+
+                console.log(`  - Bölüm ${i + 1}: pageSetup load istendi`);
+
             } catch (e) {
 
                 // Mac compatibility - getPageSetup may not be available
 
                 logStep('MARGIN', `Section ${i + 1}: getPageSetup not available`);
+
+                pageSetups.push(null);
 
             }
 
@@ -1228,19 +1242,31 @@ async function validateSectionMargins(context, sections) {
 
         await context.sync();
 
+        console.log(`[MARGIN DEBUG] context.sync() tamamlandı, değerler yüklendi`);
 
 
-        // Now validate each section
+
+        // Now validate each section - STORED pageSetup referanslarını kullan
 
         for (let i = 0; i < sections.items.length; i++) {
 
             const section = sections.items[i];
 
+            const pageSetup = pageSetups[i]; // Use stored reference instead of calling getPageSetup() again
+
+
+
+            if (!pageSetup) {
+
+                console.log(`[MARGIN DEBUG] Bölüm ${i + 1}: pageSetup null, atlanıyor`);
+
+                continue;
+
+            }
+
 
 
             try {
-
-                const pageSetup = section.getPageSetup();
 
                 const body = section.body;
 
@@ -1648,17 +1674,15 @@ function validateBodyText(paraData, index) {
 
 
 
-    // DEBUG LOG: Metin paragrafı boşluk değerleri (her 10 paragrafta bir)
+    // DEBUG LOG: Metin paragrafı boşluk değerleri (HER PARAGRAF)
 
-    if (index % 10 === 0) {
+    console.log(`[BODY DEBUG] Paragraf ${index + 1}: "${(text || '').substring(0, 40)}..."`);
 
-        console.log(`[BODY DEBUG] Paragraf ${index + 1}: "${(text || '').substring(0, 30)}..."`);
+    console.log(`  - lineSpacing: ${lineSpacing} pt, lineSpacingRule: ${paraData.lineSpacingRule}`);
 
-        console.log(`  - lineSpacing: ${lineSpacing} pt, rule: ${paraData.lineSpacingRule}`);
+    console.log(`  - spaceBefore: ${spaceBefore} pt, spaceAfter: ${spaceAfter} pt`);
 
-        console.log(`  - spaceBefore: ${spaceBefore} pt, spaceAfter: ${spaceAfter} pt`);
-
-    }
+    console.log(`  - firstLineIndent: ${firstLineIndent} pt, font.size: ${font.size} pt`);
 
 
 
@@ -1782,11 +1806,11 @@ function validateBodyText(paraData, index) {
 
     // Line spacing: 1.5 satır
 
-    // lineSpacingRule: "AtLeast", "Exactly", "Multiple", "Single" olabilir
+    // lineSpacingRule: "AtLeast", "Exactly", "Multiple", "Single", "OneAndOneHalf" olabilir
 
     // 1.5 satır aralığı genellikle ~18pt civarıdır (12pt font * 1.5)
 
-    // Multiple modunda lineSpacing değeri çarpan olarak kullanılır
+    // Multiple modunda lineSpacing değeri pt cinsinden verilir
 
 
 
@@ -1798,23 +1822,33 @@ function validateBodyText(paraData, index) {
 
 
 
+        console.log(`  - [LINE SPACING CHECK] rule: ${rule}, lineSpacing: ${lineSpacing}`);
+
+
+
         // 1. OneAndOneHalf (1.5 Satır) -> her zaman geçerli
 
         if (rule === 'OneAndOneHalf' || rule === Word.LineSpacingRule.oneAndOneHalf) {
 
             isValidSpacing = true;
 
+            console.log(`    ✓ OneAndOneHalf rule - VALID`);
+
         }
 
-        // 2. Multiple modunda değer kontrolü
+        // 2. Multiple modunda değer kontrolü (17-22 pt arası kabul - 1.5 satıra denk gelir)
 
         else if (rule === 'Multiple' || rule === Word.LineSpacingRule.multiple) {
 
-            // Multiple modunda lineSpacing pt cinsinden veya çarpan olabilir
+            // Multiple modunda lineSpacing pt cinsinden veriliyor (1.5 satır ≈ 18pt)
+
+            // Hem çarpan (1.4-1.6) hem de pt değeri (17-22) kabul ediliyor
 
             isValidSpacing = (lineSpacing >= 1.4 && lineSpacing <= 1.6) ||
 
                 (lineSpacing >= EBYÜ_RULES.LINE_SPACING_1_5_MIN && lineSpacing <= EBYÜ_RULES.LINE_SPACING_1_5_MAX);
+
+            console.log(`    ${isValidSpacing ? '✓' : '✗'} Multiple rule - ${lineSpacing}pt (beklenen: 17-22pt veya 1.4-1.6 çarpan)`);
 
         }
 
@@ -1826,13 +1860,19 @@ function validateBodyText(paraData, index) {
 
             isValidSpacing = lineSpacing >= EBYÜ_RULES.LINE_SPACING_1_5_MIN && lineSpacing <= EBYÜ_RULES.LINE_SPACING_1_5_MAX;
 
+            console.log(`    ${isValidSpacing ? '✓' : '✗'} ${rule} rule - ${lineSpacing}pt (beklenen: 17-22pt)`);
+
         }
 
-        // 4. Single veya Double -> geçersiz
+        // 4. Single veya Double -> geçersiz (1.5 satır olmalı)
 
-        else if (rule === 'Single' || rule === 'Double') {
+        else if (rule === 'Single' || rule === 'Double' ||
+
+            rule === Word.LineSpacingRule.single || rule === Word.LineSpacingRule.double) {
 
             isValidSpacing = false;
+
+            console.log(`    ✗ ${rule} rule - INVALID (1.5 satır olmalı)`);
 
         }
 
@@ -1841,6 +1881,8 @@ function validateBodyText(paraData, index) {
         else {
 
             isValidSpacing = lineSpacing >= EBYÜ_RULES.LINE_SPACING_1_5_MIN && lineSpacing <= EBYÜ_RULES.LINE_SPACING_1_5_MAX;
+
+            console.log(`    ${isValidSpacing ? '✓' : '✗'} Unknown/null rule - ${lineSpacing}pt (beklenen: 17-22pt)`);
 
         }
 
@@ -1884,9 +1926,21 @@ function validateBodyText(paraData, index) {
 
     // PARAGRAPH SPACING: 6nk (4-8 arası kabul)
 
+    console.log(`  - [SPACING CHECK] spaceBefore: ${spaceBefore}, spaceAfter: ${spaceAfter}`);
+
+    console.log(`    Beklenen aralık: ${EBYÜ_RULES.SPACING_6NK_MIN}-${EBYÜ_RULES.SPACING_6NK_MAX} pt`);
+
+
+
     if (spaceBefore !== undefined && spaceBefore !== null) {
 
-        if (spaceBefore < EBYÜ_RULES.SPACING_6NK_MIN || spaceBefore > EBYÜ_RULES.SPACING_6NK_MAX) {
+        const isValidBefore = spaceBefore >= EBYÜ_RULES.SPACING_6NK_MIN && spaceBefore <= EBYÜ_RULES.SPACING_6NK_MAX;
+
+        console.log(`    spaceBefore ${spaceBefore}pt: ${isValidBefore ? '✓ VALID' : '✗ INVALID'}`);
+
+
+
+        if (!isValidBefore) {
 
             errors.push({
 
@@ -1904,13 +1958,23 @@ function validateBodyText(paraData, index) {
 
         }
 
+    } else {
+
+        console.log(`    ⚠️ spaceBefore undefined/null`);
+
     }
 
 
 
     if (spaceAfter !== undefined && spaceAfter !== null) {
 
-        if (spaceAfter < EBYÜ_RULES.SPACING_6NK_MIN || spaceAfter > EBYÜ_RULES.SPACING_6NK_MAX) {
+        const isValidAfter = spaceAfter >= EBYÜ_RULES.SPACING_6NK_MIN && spaceAfter <= EBYÜ_RULES.SPACING_6NK_MAX;
+
+        console.log(`    spaceAfter ${spaceAfter}pt: ${isValidAfter ? '✓ VALID' : '✗ INVALID'}`);
+
+
+
+        if (!isValidAfter) {
 
             errors.push({
 
@@ -1927,6 +1991,10 @@ function validateBodyText(paraData, index) {
             });
 
         }
+
+    } else {
+
+        console.log(`    ⚠️ spaceAfter undefined/null`);
 
     }
 
@@ -2326,15 +2394,19 @@ function validateCoverPage(paraData, index) {
 
 
 
-    // DEBUG LOG: Kapak sayfası boşluk değerleri
+    // DEBUG LOG: Kapak sayfası tüm boşluk değerleri (HER PARAGRAF)
 
-    console.log(`[COVER DEBUG] Paragraf ${index + 1}: "${trimmed.substring(0, 25)}..."`);
+    console.log(`[COVER DEBUG] Paragraf ${index + 1}: "${trimmed.substring(0, 40)}..."`);
 
-    console.log(`  - spaceBefore: ${spaceBefore} pt`);
+    console.log(`  - spaceBefore: ${spaceBefore} pt (tip: ${typeof spaceBefore})`);
 
-    console.log(`  - spaceAfter: ${spaceAfter} pt`);
+    console.log(`  - spaceAfter: ${spaceAfter} pt (tip: ${typeof spaceAfter})`);
 
-    console.log(`  - lineSpacing: ${paraData.lineSpacing} pt`);
+    console.log(`  - lineSpacing: ${paraData.lineSpacing} pt, rule: ${paraData.lineSpacingRule}`);
+
+    console.log(`  - font.size: ${font.size} pt, font.name: ${font.name}`);
+
+    console.log(`  - Beklenen 0nk aralığı: ${EBYÜ_RULES.SPACING_0NK_MIN}-${EBYÜ_RULES.SPACING_0NK_MAX} pt`);
 
 
 
@@ -2392,9 +2464,19 @@ function validateCoverPage(paraData, index) {
 
     // Word bazen tam 0 yerine küsuratlı değer verebilir
 
+    console.log(`  - [COVER SPACING CHECK] Kontrol başlıyor...`);
+
+
+
     if (spaceBefore !== undefined && spaceBefore !== null) {
 
-        if (spaceBefore < EBYÜ_RULES.SPACING_0NK_MIN || spaceBefore > EBYÜ_RULES.SPACING_0NK_MAX) {
+        const isValidBefore = spaceBefore >= EBYÜ_RULES.SPACING_0NK_MIN && spaceBefore <= EBYÜ_RULES.SPACING_0NK_MAX;
+
+        console.log(`    spaceBefore ${spaceBefore}pt: ${isValidBefore ? '✓ VALID' : '✗ INVALID'} (beklenen: 0-${EBYÜ_RULES.SPACING_0NK_MAX})`);
+
+
+
+        if (!isValidBefore) {
 
             errors.push({
 
@@ -2410,9 +2492,11 @@ function validateCoverPage(paraData, index) {
 
             });
 
-            console.log(`  - ⚠️ spaceBefore hatalı: ${spaceBefore} (beklenen: 0-${EBYÜ_RULES.SPACING_0NK_MAX})`);
-
         }
+
+    } else {
+
+        console.log(`    ⚠️ spaceBefore undefined/null - değer yüklenememiş olabilir!`);
 
     }
 
@@ -2420,7 +2504,13 @@ function validateCoverPage(paraData, index) {
 
     if (spaceAfter !== undefined && spaceAfter !== null) {
 
-        if (spaceAfter < EBYÜ_RULES.SPACING_0NK_MIN || spaceAfter > EBYÜ_RULES.SPACING_0NK_MAX) {
+        const isValidAfter = spaceAfter >= EBYÜ_RULES.SPACING_0NK_MIN && spaceAfter <= EBYÜ_RULES.SPACING_0NK_MAX;
+
+        console.log(`    spaceAfter ${spaceAfter}pt: ${isValidAfter ? '✓ VALID' : '✗ INVALID'} (beklenen: 0-${EBYÜ_RULES.SPACING_0NK_MAX})`);
+
+
+
+        if (!isValidAfter) {
 
             errors.push({
 
@@ -2436,9 +2526,11 @@ function validateCoverPage(paraData, index) {
 
             });
 
-            console.log(`  - ⚠️ spaceAfter hatalı: ${spaceAfter} (beklenen: 0-${EBYÜ_RULES.SPACING_0NK_MAX})`);
-
         }
+
+    } else {
+
+        console.log(`    ⚠️ spaceAfter undefined/null - değer yüklenememiş olabilir!`);
 
     }
 
