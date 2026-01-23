@@ -1898,7 +1898,7 @@ function validateBodyText(paraData, index) {
 
         // lineSpacingRule'a bak - OneAndOneHalf ise sorun yok
 
-        if (rule !== 'OneAndOneHalf' && rule !== Word.LineSpacingRule.oneAndOneHalf) {
+        if (rule !== 'OneAndOneHalf') {
 
             errors.push({
 
@@ -1924,7 +1924,7 @@ function validateBodyText(paraData, index) {
 
         // 1. OneAndOneHalf (1.5 Satır) -> her zaman geçerli
 
-        if (rule === 'OneAndOneHalf' || rule === Word.LineSpacingRule.oneAndOneHalf) {
+        if (rule === 'OneAndOneHalf') {
 
             isValidSpacing = true;
 
@@ -1934,7 +1934,7 @@ function validateBodyText(paraData, index) {
 
         // 2. Multiple modunda değer kontrolü (font * 1.3 ile font * 1.7 arası kabul)
 
-        else if (rule === 'Multiple' || rule === Word.LineSpacingRule.multiple) {
+        else if (rule === 'Multiple') {
 
             // Multiple modunda lineSpacing pt cinsinden veriliyor
 
@@ -1946,9 +1946,7 @@ function validateBodyText(paraData, index) {
 
         // 3. AtLeast veya Exactly modlarında pt değeri kontrolü
 
-        else if (rule === 'AtLeast' || rule === 'Exactly' ||
-
-            rule === Word.LineSpacingRule.atLeast || rule === Word.LineSpacingRule.exactly) {
+        else if (rule === 'AtLeast' || rule === 'Exactly') {
 
             isValidSpacing = (lineSpacing >= expectedMin && lineSpacing <= expectedMax);
 
@@ -1958,9 +1956,7 @@ function validateBodyText(paraData, index) {
 
         // 4. Single veya Double -> geçersiz (1.5 satır olmalı)
 
-        else if (rule === 'Single' || rule === 'Double' ||
-
-            rule === Word.LineSpacingRule.single || rule === Word.LineSpacingRule.double) {
+        else if (rule === 'Single' || rule === 'Double') {
 
             isValidSpacing = false;
 
