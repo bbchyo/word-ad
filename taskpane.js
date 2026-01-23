@@ -742,25 +742,33 @@ function detectParagraphType(paraData, zone, isInBiblio) {
 
 
 
-    // Priority 7: Main Heading (outlineLevel, ListItem, or text pattern)
+    // Priority 7: Main Heading detection - ÇOK DAHA SIKI KURALLAR
 
-    // listString: Word'ün otomatik numaralandırma değeri (örn: "1.", "2.")
-
-    // Elle yazılan "1." ile Word numaralandırması arasındaki farkı listString ile anlıyoruz
+    // Başlık olması için: (Kısa metin + BOLD) VEYA (Başlık stili) VEYA (Bilinen başlık pattern'i)
 
     const hasMainListNumber = paraData.listString && /^\d+\.$/.test(paraData.listString.trim());
 
-    const isMainByListItem = paraData.isListItem && hasMainListNumber;
+    const isMainByListItem = paraData.isListItem && hasMainListNumber && font.bold === true;
 
-    const isMainByOutline = outlineLevel === 0 || outlineLevel === 1;
-
-    const isMainByText = isMainHeadingText(trimmed);
+    const isMainByText = isMainHeadingText(trimmed); // Bilinen başlık pattern'leri (GİRİŞ, SONUÇ vb.)
 
     const isMainByStyle = isHeadingStyle(style) && (/heading\s*1/i.test(style) || /başlık\s*1/i.test(style));
 
 
 
-    if (isMainByListItem || isMainByOutline || isMainByText || isMainByStyle) {
+    // ÖNEMLI: outlineLevel tek başına yeterli DEĞİL - BOLD olmalı veya başlık stili olmalı
+
+    const isMainByOutline = (outlineLevel === 0 || outlineLevel === 1) &&
+
+        (font.bold === true || isHeadingStyle(style)) &&
+
+        trimmed.length < 100; // Başlıklar genellikle kısa olur
+
+
+
+    if (isMainByText || isMainByStyle || (isMainByListItem && trimmed.length < 100) || isMainByOutline) {
+
+        console.log(`[HEADING DETECT] MAIN: "${trimmed.substring(0, 40)}..." - byText:${isMainByText}, byStyle:${isMainByStyle}, byList:${isMainByListItem}, byOutline:${isMainByOutline}`);
 
         return PARA_TYPES.MAIN_HEADING;
 
@@ -768,23 +776,41 @@ function detectParagraphType(paraData, zone, isInBiblio) {
 
 
 
-    // Priority 8: Sub-Heading (ListItem with "1.1." format or outlineLevel 2-8)
+    // Priority 8: Sub-Heading - ÇOK DAHA SIKI KURALLAR
 
-    // listString: Word'ün otomatik numaralandırma değeri (örn: "1.1.", "2.3.1.")
+    // Alt başlık için: BOLD + kısa metin + numara pattern'i
 
     const hasSubListNumber = paraData.listString && /^\d+\.\d+(\.\d+)*\.?$/.test(paraData.listString.trim());
 
-    const isSubByListItem = paraData.isListItem && hasSubListNumber;
+    const isSubByListItem = paraData.isListItem && hasSubListNumber && font.bold === true;
 
-    const isSubByOutline = typeof outlineLevel === 'number' && outlineLevel >= 2 && outlineLevel <= 8;
 
-    const isSubByText = isSubHeadingText(trimmed);
+
+    // Text pattern kontrolü - SADECE satır başındaki numaralandırma + BOLD
+
+    const subHeadingTextPattern = /^\d+\.\d+(\.\d+)*\.?\s+.+/;
+
+    const isSubByText = subHeadingTextPattern.test(trimmed) && font.bold === true && trimmed.length < 150;
+
+
 
     const isSubByStyle = isHeadingStyle(style) && !isMainByStyle;
 
 
 
-    if (isSubByListItem || isSubByOutline || isSubByText || isSubByStyle) {
+    // outlineLevel 2-8 için BOLD şartı ekle
+
+    const isSubByOutline = typeof outlineLevel === 'number' && outlineLevel >= 2 && outlineLevel <= 8 &&
+
+        (font.bold === true || isHeadingStyle(style)) &&
+
+        trimmed.length < 150;
+
+
+
+    if (isSubByListItem || isSubByText || isSubByStyle || isSubByOutline) {
+
+        console.log(`[HEADING DETECT] SUB: "${trimmed.substring(0, 40)}..." - byList:${isSubByListItem}, byText:${isSubByText}, byStyle:${isSubByStyle}, byOutline:${isSubByOutline}`);
 
         return PARA_TYPES.SUB_HEADING;
 
@@ -1804,23 +1830,25 @@ function validateBodyText(paraData, index) {
 
 
 
-    // REGEX TABİ MANUEL GİRİNTİ TESPİTİ
+    // REGEX MANUEL TAB GİRİNTİ TESPİTİ
 
-    // Satır başında Tab veya 2+ boşluk varsa hata ver
+    // Satır başında Tab karakteri (\t) varsa hata ver
 
-    const manualIndentPattern = /^[\t\s]{2,}/;
+    // NOT: \s yerine sadece \t kullanıyoruz çünkü \s normal boşlukları da yakalar
 
-    if (manualIndentPattern.test(text)) {
+    const manualTabPattern = /^\t/;
 
-        console.log(`    ⚠️ Manuel girinti tespit edildi (regex): "${text.substring(0, 20)}..."`);
+    if (manualTabPattern.test(text)) {
+
+        console.log(`    ⚠️ Manuel Tab girinti tespit edildi: "${text.substring(0, 20)}..."`);
 
         errors.push({
 
             type: 'warning',
 
-            title: 'Metin: Manuel Girinti (Tab/Boşluk)',
+            title: 'Metin: Manuel Tab Girintisi',
 
-            description: 'Girinti için Tab veya Boşluk tuşu kullanmayın, Paragraf Ayarlarını kullanın.',
+            description: 'Girinti için Tab tuşu kullanmayın, Paragraf Ayarlarından 1.25 cm ilk satır girintisi ayarlayın.',
 
             paraIndex: index,
 
@@ -1842,27 +1870,55 @@ function validateBodyText(paraData, index) {
 
 
 
-    if (lineSpacing !== undefined && lineSpacing !== null) {
+    const rule = paraData.lineSpacingRule;
 
-        const rule = paraData.lineSpacingRule;
+    const fontSize = font.size || 12; // Varsayılan 12pt
 
-        const fontSize = font.size || 12; // Varsayılan 12pt
+
+
+    // Font boyutuna göre beklenen 1.5 satır aralığı hesapla
+
+    const expectedMin = fontSize * 1.3; // Alt sınır
+
+    const expectedMax = fontSize * 1.7; // Üst sınır
+
+
+
+    console.log(`  - [LINE SPACING CHECK] rule: ${rule}, lineSpacing: ${lineSpacing}, fontSize: ${fontSize}`);
+
+    console.log(`    Beklenen aralık (font * 1.3-1.7): ${expectedMin.toFixed(1)} - ${expectedMax.toFixed(1)} pt`);
+
+
+
+    // lineSpacing undefined/null ise de kontrol et
+
+    if (lineSpacing === undefined || lineSpacing === null) {
+
+        console.log(`    ⚠️ lineSpacing undefined/null - değer yüklenememiş!`);
+
+        // lineSpacingRule'a bak - OneAndOneHalf ise sorun yok
+
+        if (rule !== 'OneAndOneHalf' && rule !== Word.LineSpacingRule.oneAndOneHalf) {
+
+            errors.push({
+
+                type: 'warning',
+
+                title: 'Metin: Satır Aralığı',
+
+                description: `1.5 satır aralığı olmalı. Mevcut: tespit edilemedi (Kural: ${rule || 'belirtilmemiş'})`,
+
+                paraIndex: index,
+
+                severity: 'FORMAT'
+
+            });
+
+        }
+
+    } else {
 
         let isValidSpacing = false;
-
-
-
-        // Font boyutuna göre beklenen 1.5 satır aralığı hesapla
-
-        const expectedMin = fontSize * 1.3; // Alt sınır
-
-        const expectedMax = fontSize * 1.7; // Üst sınır
-
-
-
-        console.log(`  - [LINE SPACING CHECK] rule: ${rule}, lineSpacing: ${lineSpacing}, fontSize: ${fontSize}`);
-
-        console.log(`    Beklenen aralık (font * 1.3-1.7): ${expectedMin.toFixed(1)} - ${expectedMax.toFixed(1)} pt`);
 
 
 
