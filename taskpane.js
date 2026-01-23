@@ -374,54 +374,78 @@ function clearResults() {
 // ============================================
 
 function initializeUI() {
-    document.getElementById('scanButton').onclick = scanDocument;
-    document.getElementById('clearButton').onclick = clearHighlightsAndResults;
+    const scanBtn = document.getElementById('scanBtn');
+    if (scanBtn) {
+        scanBtn.onclick = scanDocument;
+    } else {
+        console.error('Scan button not found!');
+    }
+
+    // Clear button does not exist in current HTML, skipping
     logStep('UI', 'User interface initialized');
 }
 
 function setButtonState(enabled) {
-    const btn = document.getElementById('scanButton');
+    const btn = document.getElementById('scanBtn');
     if (btn) {
         btn.disabled = !enabled;
-        btn.textContent = enabled ? '🔍 Belgeyi Tara' : '⏳ Taranıyor...';
+        // SVG icon + text structure
+        const textSpan = btn.querySelector('span');
+        if (textSpan) {
+            textSpan.textContent = enabled ? 'DÖKÜMAN TARA' : 'ARANIYOR...';
+        }
     }
 }
 
 function updateProgress(percent, message) {
-    const progressContainer = document.getElementById('progress-container');
-    const progressBar = document.getElementById('progress-bar');
-    const progressText = document.getElementById('progress-text');
+    const progressContainer = document.getElementById('progressSection');
+    const progressBar = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
 
-    if (progressContainer) progressContainer.style.display = 'block';
+    if (progressContainer) {
+        progressContainer.classList.remove('hidden');
+        progressContainer.style.display = 'block'; // Ensure visibility
+    }
+
     if (progressBar) progressBar.style.width = `${percent}%`;
     if (progressText) progressText.textContent = message;
 }
 
 function hideProgress() {
-    const progressContainer = document.getElementById('progress-container');
-    if (progressContainer) progressContainer.style.display = 'none';
+    const progressContainer = document.getElementById('progressSection');
+    if (progressContainer) {
+        progressContainer.classList.add('hidden');
+        progressContainer.style.display = 'none';
+    }
 }
 
 function displayResults() {
-    const resultsContainer = document.getElementById('results-container');
+    const resultsContainer = document.getElementById('resultsList');
+    // Also update summary stats
+    const errorCountEl = document.getElementById('errorCount');
+    const warningCountEl = document.getElementById('warningCount');
+    const successCountEl = document.getElementById('successCount');
+    const summarySection = document.getElementById('summarySection');
+
     if (!resultsContainer) return;
 
     if (validationResults.length === 0) {
-        resultsContainer.innerHTML = '<div class="result-item success">✅ Hiçbir hata bulunamadı.</div>';
+        resultsContainer.innerHTML = '<div class="empty-state"><p>✅ Hiçbir hata bulunamadı.</p></div>';
+        if (summarySection) summarySection.classList.add('hidden');
         return;
     }
+
+    if (summarySection) summarySection.classList.remove('hidden');
 
     let html = '';
     const errors = validationResults.filter(r => r.type === 'error');
     const warnings = validationResults.filter(r => r.type === 'warning');
     const successes = validationResults.filter(r => r.type === 'success');
 
-    // Summary
-    html += `<div class="summary">
-        <span class="error-count">🔴 ${errors.length} Kritik</span>
-        <span class="warning-count">🟡 ${warnings.length} Format</span>
-        <span class="success-count">✅ ${successes.length} Başarılı</span>
-    </div>`;
+    // Update stats
+    if (errorCountEl) errorCountEl.textContent = errors.length;
+    if (warningCountEl) warningCountEl.textContent = warnings.length;
+    if (successCountEl) successCountEl.textContent = successes.length;
 
     // Errors first
     for (const result of errors) {
@@ -440,11 +464,19 @@ function displayResults() {
 }
 
 function createResultItem(result, type) {
+    // Map type to CSS class
+    const cssClass = type === 'error' ? 'result-card error' :
+        (type === 'warning' ? 'result-card warning' : 'result-card success');
+
     return `
-        <div class="result-item ${type}">
-            <div class="result-title">${result.title}</div>
-            <div class="result-description">${result.description}</div>
-            <div class="result-location">${result.location}</div>
+        <div class="${cssClass}">
+            <div class="result-header">
+                <span class="result-title">${result.title}</span>
+            </div>
+            <div class="result-body">
+                ${result.description}
+            </div>
+            ${result.location ? `<div class="result-footer">${result.location}</div>` : ''}
         </div>
     `;
 }
