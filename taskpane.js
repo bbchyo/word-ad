@@ -2914,7 +2914,9 @@ async function scanDocument() {
 
             // BATCH LOAD: Load all paragraph properties at once
 
-            // NEW: Added isListItem, listItemOrNullObject/listString, listItemOrNullObject/level for heading numbering validation
+            // FIX: Use direct paragraph properties instead of paragraphFormat/* for Mac Word compatibility
+
+            // Word.Paragraph has leftIndent, lineSpacing, spaceBefore, spaceAfter, firstLineIndent, alignment directly
 
             paragraphs.load([
 
@@ -2934,19 +2936,19 @@ async function scanDocument() {
 
                 'items/font/italic',
 
-                'items/paragraphFormat/alignment',
+                'items/alignment',
 
-                'items/paragraphFormat/firstLineIndent',
+                'items/firstLineIndent',
 
-                'items/paragraphFormat/leftIndent',
+                'items/leftIndent',
 
-                'items/paragraphFormat/rightIndent',
+                'items/rightIndent',
 
-                'items/paragraphFormat/lineSpacing',
+                'items/lineSpacing',
 
-                'items/paragraphFormat/spaceBefore',
+                'items/spaceBefore',
 
-                'items/paragraphFormat/spaceAfter',
+                'items/spaceAfter',
 
                 'items/isListItem',
 
@@ -2992,15 +2994,13 @@ async function scanDocument() {
 
 
 
-                // Defensive null checks - paragraphFormat may be undefined for some elements
-
-                const pFormat = p.paragraphFormat || {};
+                // Defensive null checks
 
                 const pFont = p.font || {};
 
 
 
-                // NEW: Extract listItem properties for heading numbering validation
+                // Extract listItem properties for heading numbering validation
 
                 const listItem = p.listItemOrNullObject;
 
@@ -3021,6 +3021,8 @@ async function scanDocument() {
                 }
 
 
+
+                // FIX: Use direct paragraph properties instead of paragraphFormat for Mac Word
 
                 paragraphDataList.push({
 
@@ -3046,21 +3048,21 @@ async function scanDocument() {
 
                     },
 
-                    alignment: pFormat.alignment,
+                    alignment: p.alignment,
 
-                    firstLineIndent: pFormat.firstLineIndent,
+                    firstLineIndent: p.firstLineIndent,
 
-                    leftIndent: pFormat.leftIndent,
+                    leftIndent: p.leftIndent,
 
-                    rightIndent: pFormat.rightIndent,
+                    rightIndent: p.rightIndent,
 
-                    lineSpacing: pFormat.lineSpacing,
+                    lineSpacing: p.lineSpacing,
 
-                    spaceBefore: pFormat.spaceBefore,
+                    spaceBefore: p.spaceBefore,
 
-                    spaceAfter: pFormat.spaceAfter,
+                    spaceAfter: p.spaceAfter,
 
-                    // NEW: List item properties for heading numbering
+                    // List item properties for heading numbering
 
                     isListItem: p.isListItem || false,
 
