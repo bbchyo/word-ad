@@ -106,7 +106,7 @@ const EBYÜ_RULES = {
 
     SPACING_0NK: 0,
 
-    SPACING_TOLERANCE: 3,
+    SPACING_TOLERANCE: 1.5,
 
 
 
@@ -124,7 +124,7 @@ const EBYÜ_RULES = {
 
     // Detection
 
-    MIN_BODY_TEXT_LENGTH: 50,
+    MIN_BODY_TEXT_LENGTH: 30,
 
     BLOCK_QUOTE_MIN_INDENT: 20,
 
@@ -1693,16 +1693,6 @@ function validateBodyText(paraData, index) {
     // Skip short paragraphs
 
     if ((text || '').trim().length < EBYÜ_RULES.MIN_BODY_TEXT_LENGTH) {
-
-        return errors;
-
-    }
-
-
-
-    // Skip list items (bullet points) - they have different spacing rules
-
-    if (paraData.isListItem) {
 
         return errors;
 
@@ -3360,6 +3350,132 @@ async function scanDocument() {
 
 
 
+            // Step 8.5: Validate Özet and Abstract (Özet Sayfaları)
+
+            updateProgress(93, 'Özet/Abstract kontrol ediliyor...');
+
+
+
+            // Find ÖZET section paragraphs
+
+            let ozetStartIndex = -1;
+
+            let abstractStartIndex = -1;
+
+
+
+            for (let i = 0; i < paragraphDataList.length; i++) {
+
+                const text = paragraphDataList[i].text.trim().toUpperCase();
+
+                if (text === 'ÖZET' || text.startsWith('ÖZET')) {
+
+                    ozetStartIndex = i;
+
+                }
+
+                if (text === 'ABSTRACT' || text.startsWith('ABSTRACT')) {
+
+                    abstractStartIndex = i;
+
+                }
+
+            }
+
+
+
+            // Validate ÖZET (Turkish abstract)
+
+            if (ozetStartIndex >= 0) {
+
+                const ozetParagraphs = [];
+
+                for (let i = ozetStartIndex + 1; i < paragraphDataList.length && i < ozetStartIndex + 20; i++) {
+
+                    const text = paragraphDataList[i].text.trim();
+
+                    // Stop at next section header
+
+                    if (text.toUpperCase() === 'ABSTRACT' || text.toUpperCase().startsWith('İÇİNDEKİLER') ||
+
+                        text.toUpperCase() === 'GİRİŞ' || isMainHeadingText(text)) {
+
+                        break;
+
+                    }
+
+                    if (text.length > 10) {
+
+                        ozetParagraphs.push(paragraphDataList[i]);
+
+                    }
+
+                }
+
+
+
+                const ozetErrors = validateAbstract(null, ozetParagraphs);
+
+                for (const err of ozetErrors) {
+
+                    err.title = err.title.replace('Özet:', 'ÖZET:');
+
+                    addResult(err.type, err.title, err.description, 'Özet Sayfası', null, err.severity);
+
+                    warningCount++;
+
+                }
+
+            }
+
+
+
+            // Validate ABSTRACT (English abstract)
+
+            if (abstractStartIndex >= 0) {
+
+                const abstractParagraphs = [];
+
+                for (let i = abstractStartIndex + 1; i < paragraphDataList.length && i < abstractStartIndex + 20; i++) {
+
+                    const text = paragraphDataList[i].text.trim();
+
+                    // Stop at next section header
+
+                    if (text.toUpperCase().startsWith('İÇİNDEKİLER') || text.toUpperCase() === 'GİRİŞ' ||
+
+                        isMainHeadingText(text)) {
+
+                        break;
+
+                    }
+
+                    if (text.length > 10) {
+
+                        abstractParagraphs.push(paragraphDataList[i]);
+
+                    }
+
+                }
+
+
+
+                const abstractErrors = validateAbstract(null, abstractParagraphs);
+
+                for (const err of abstractErrors) {
+
+                    err.title = err.title.replace('Özet:', 'ABSTRACT:');
+
+                    addResult(err.type, err.title, err.description, 'Abstract Sayfası', null, err.severity);
+
+                    warningCount++;
+
+                }
+
+            }
+
+
+
             // Step 9: Apply highlights
 
             updateProgress(95, 'İşaretler uygulanıyor...');
@@ -3386,37 +3502,7 @@ async function scanDocument() {
 
 
 
-            // === DEBUG: Show spacing values for first 5 body text paragraphs in UI ===
-
-            const bodyTextParagraphs = paragraphDataList.filter(p =>
-
-                p.text.trim().length >= 30 &&
-
-                !isTOCEntry(p.style, p.text) &&
-
-                !isMainHeadingText(p.text.trim()) &&
-
-                !isSubHeadingText(p.text.trim())
-
-            ).slice(0, 5);
-
-
-
-            if (bodyTextParagraphs.length > 0) {
-
-                let debugInfo = '📊 DEBUG - İlk 5 Metin Paragrafının Değerleri:\\n';
-
-                for (const p of bodyTextParagraphs) {
-
-                    debugInfo += `P${p.index + 1}: lineSpacing=${p.lineSpacing ?? 'undefined'}, spaceBefore=${p.spaceBefore ?? 'undefined'}, spaceAfter=${p.spaceAfter ?? 'undefined'}, leftIndent=${p.leftIndent ?? 'undefined'}\\n`;
-
-                }
-
-                addResult('warning', '🔧 DEBUG: Spacing Değerleri', debugInfo, 'Belge Geneli', null, 'FORMAT');
-
-            }
-
-            // === END DEBUG ===
+            // DEBUG section removed - spacing values confirmed working
 
 
 
