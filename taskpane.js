@@ -362,7 +362,31 @@ const PATTERNS = {
 
         /^ÖZET$/i,
 
-        /^ABSTRACT$/i
+        /^ABSTRACT$/i,
+
+        // Additional front matter pages (not cover)
+
+        /^BİLİMSEL\s*ETİ/i,
+
+        /^ETİK\s*BEYAN/i,
+
+        /^KABUL\s*VE\s*ONAY/i,
+
+        /^ONAY\s*SAYFASI/i,
+
+        /^KILAVUZ/i,
+
+        /^T\.?C\.?\s*(ERZINCAN|ERZİNCAN)/i,
+
+        /MÜDÜRLÜĞÜNE$/i,
+
+        /^JÜRİ\s*/i,
+
+        /^TEZ\s*SAVUNMA/i,
+
+        /^BEYAN$/i,
+
+        /^ORİJİNALLİK/i
 
     ],
 
@@ -3088,6 +3112,8 @@ async function scanDocument() {
 
             let isInBiblio = false;
 
+            let isInTOC = false; // Track if we're inside İÇİNDEKİLER section
+
             let ghostCount = 0;
 
             let errorCount = 0;
@@ -3121,6 +3147,44 @@ async function scanDocument() {
                 // Cover is only the first 15 paragraphs OR until ÖZET/front matter
 
                 const textUpper = text.toUpperCase();
+
+
+
+                // Track İÇİNDEKİLER section (Table of Contents)
+
+                if (textUpper === 'İÇİNDEKİLER' || textUpper.startsWith('İÇİNDEKİLER')) {
+
+                    isInTOC = true;
+
+                    currentZone = ZONES.FRONT_MATTER;
+
+                    logStep('ZONE', `Entered TOC at paragraph ${i + 1}`);
+
+                }
+
+
+
+                // Exit TOC when we hit next major section
+
+                if (isInTOC && (textUpper === 'ÖZET' || textUpper === 'ÖNSÖZ' || textUpper === 'ABSTRACT' ||
+
+                    textUpper === 'TEŞEKKÜR' || /^1\.\s/.test(text) || textUpper === 'GİRİŞ')) {
+
+                    isInTOC = false;
+
+                    logStep('ZONE', `Exited TOC at paragraph ${i + 1}: "${text.substring(0, 30)}..."`);
+
+                }
+
+
+
+                // Skip validation for paragraphs inside TOC
+
+                if (isInTOC && textUpper !== 'İÇİNDEKİLER') {
+
+                    continue; // Skip this paragraph entirely
+
+                }
 
 
 
@@ -3410,25 +3474,41 @@ async function scanDocument() {
 
                     const text = paragraphDataList[i].text.trim();
 
-                    const textUpper = text.toUpperCase();
+                    // Stop at "Anahtar Kelimeler" (case-insensitive, handle Turkish chars)
 
-                    // Stop at "Anahtar Kelimeler" which marks end of ÖZET
+                    if (/^anahtar\s*(kelime|sözcük)/i.test(text)) {
 
-                    if (textUpper.startsWith('ANAHTAR KELİMELER') || textUpper.startsWith('ANAHTAR SÖZCÜKLER')) {
+                        logStep('ÖZET', `Found Anahtar Kelimeler at paragraph ${i + 1}`);
 
                         break;
 
                     }
 
-                    // Skip empty or very short paragraphs
+                    // Also stop at ABSTRACT (in case Anahtar Kelimeler is missing)
 
-                    if (text.length > 10) {
+                    if (/^ABSTRACT$/i.test(text)) {
+
+                        logStep('ÖZET', `Found ABSTRACT at paragraph ${i + 1}, stopping ÖZET scan`);
+
+                        break;
+
+                    }
+
+                    // Skip empty or very short paragraphs, but include medium ones
+
+                    if (text.length > 5 && !/^anahtar/i.test(text)) {
 
                         ozetParagraphs.push(paragraphDataList[i]);
 
                     }
 
                 }
+
+
+
+                // Debug: Show how many paragraphs found
+
+                logStep('ÖZET', `Found ${ozetParagraphs.length} paragraphs in ÖZET section`);
 
 
 
@@ -3458,25 +3538,31 @@ async function scanDocument() {
 
                     const text = paragraphDataList[i].text.trim();
 
-                    const textUpper = text.toUpperCase();
+                    // Stop at "Keywords" which marks end of ABSTRACT (case-insensitive)
 
-                    // Stop at "Keywords" which marks end of ABSTRACT
+                    if (/^key\s*words?/i.test(text)) {
 
-                    if (textUpper.startsWith('KEYWORDS') || textUpper.startsWith('KEY WORDS')) {
+                        logStep('ABSTRACT', `Found Keywords at paragraph ${i + 1}`);
 
                         break;
 
                     }
 
-                    // Skip empty or very short paragraphs
+                    // Skip empty or very short paragraphs, but include medium ones
 
-                    if (text.length > 10) {
+                    if (text.length > 5 && !/^key/i.test(text)) {
 
                         abstractParagraphs.push(paragraphDataList[i]);
 
                     }
 
                 }
+
+
+
+                // Debug: Show how many paragraphs found
+
+                logStep('ABSTRACT', `Found ${abstractParagraphs.length} paragraphs in ABSTRACT section`);
 
 
 
