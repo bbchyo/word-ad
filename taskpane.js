@@ -106,7 +106,7 @@ const EBYÜ_RULES = {
 
     SPACING_0NK: 0,
 
-    SPACING_TOLERANCE: 1.5,
+    SPACING_TOLERANCE: 3,
 
 
 
@@ -124,7 +124,7 @@ const EBYÜ_RULES = {
 
     // Detection
 
-    MIN_BODY_TEXT_LENGTH: 30,
+    MIN_BODY_TEXT_LENGTH: 50,
 
     BLOCK_QUOTE_MIN_INDENT: 20,
 
@@ -1693,6 +1693,16 @@ function validateBodyText(paraData, index) {
     // Skip short paragraphs
 
     if ((text || '').trim().length < EBYÜ_RULES.MIN_BODY_TEXT_LENGTH) {
+
+        return errors;
+
+    }
+
+
+
+    // Skip list items (bullet points) - they have different spacing rules
+
+    if (paraData.isListItem) {
 
         return errors;
 
