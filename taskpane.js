@@ -54,7 +54,7 @@ const EBYÜ_RULES = {
 
     MARGIN_TOP_SPECIAL_POINTS: 198.45, // 7cm for Main Chapter Starts
 
-    MARGIN_TOLERANCE: 2, // ±2pt tolerans (daha dar)
+    MARGIN_TOLERANCE: 2.5, // Tolerance for floating point diffs
 
 
 
@@ -106,19 +106,7 @@ const EBYÜ_RULES = {
 
     SPACING_0NK: 0,
 
-    SPACING_TOLERANCE: 2, // Artırıldı: Word küsuratlı değer verebilir
-
-
-
-    // Spacing ranges for validation
-
-    SPACING_0NK_MIN: 0,
-
-    SPACING_0NK_MAX: 2,  // 0nk için 0-2 arası kabul
-
-    SPACING_6NK_MIN: 4,
-
-    SPACING_6NK_MAX: 8,  // 6nk için 4-8 arası kabul
+    SPACING_TOLERANCE: 1.5,
 
 
 
@@ -126,11 +114,11 @@ const EBYÜ_RULES = {
 
     LINE_SPACING_1_5_MIN: 17,
 
-    LINE_SPACING_1_5_MAX: 22, // Artırıldı: daha geniş tolerans
+    LINE_SPACING_1_5_MAX: 19,
 
     LINE_SPACING_SINGLE_MIN: 11,
 
-    LINE_SPACING_SINGLE_MAX: 14,
+    LINE_SPACING_SINGLE_MAX: 13,
 
 
 
@@ -182,15 +170,7 @@ const EBYÜ_RULES = {
 
     // Table Content Font Size
 
-    TABLE_CONTENT_SIZE: 11,
-
-
-
-    // Tab Detection
-
-    TAB_CHAR: '\t',
-
-    MAX_ALLOWED_TABS: 1  // Max 1 tab izin verilir, 2+ hata
+    TABLE_CONTENT_SIZE: 11
 
 };
 
@@ -456,42 +436,6 @@ function matchesAnyPattern(text, patterns) {
 
 
 
-/**
-
- * Detect manual Tab characters in paragraph text
-
- * Manuel Tab karakterlerini tespit eder (\t)
-
- * @param {string} text - Paragraph text content
-
- * @returns {Object} Tab detection results
-
- */
-
-function detectManualTabs(text) {
-
-    if (!text) return { hasManualTabs: false, tabCount: 0, startsWithTab: false, consecutiveTabsAtStart: 0 };
-
-
-
-    const tabMatches = text.match(/\t/g);
-
-    return {
-
-        hasManualTabs: tabMatches !== null,
-
-        tabCount: tabMatches ? tabMatches.length : 0,
-
-        startsWithTab: text.startsWith('\t'),
-
-        consecutiveTabsAtStart: (text.match(/^\t+/) || [''])[0].length
-
-    };
-
-}
-
-
-
 function isMainHeadingText(text) {
 
     return matchesAnyPattern(text, PATTERNS.MAIN_HEADING);
@@ -742,33 +686,17 @@ function detectParagraphType(paraData, zone, isInBiblio) {
 
 
 
-    // Priority 7: Main Heading detection - ÇOK DAHA SIKI KURALLAR
+    // Priority 7: Main Heading (outlineLevel first, then text pattern)
 
-    // Başlık olması için: (Kısa metin + BOLD) VEYA (Başlık stili) VEYA (Bilinen başlık pattern'i)
+    const isMainByOutline = outlineLevel === 0 || outlineLevel === 1;
 
-    const hasMainListNumber = paraData.listString && /^\d+\.$/.test(paraData.listString.trim());
-
-    const isMainByListItem = paraData.isListItem && hasMainListNumber && font.bold === true;
-
-    const isMainByText = isMainHeadingText(trimmed); // Bilinen başlık pattern'leri (GİRİŞ, SONUÇ vb.)
+    const isMainByText = isMainHeadingText(trimmed);
 
     const isMainByStyle = isHeadingStyle(style) && (/heading\s*1/i.test(style) || /başlık\s*1/i.test(style));
 
 
 
-    // ÖNEMLI: outlineLevel tek başına yeterli DEĞİL - BOLD olmalı veya başlık stili olmalı
-
-    const isMainByOutline = (outlineLevel === 0 || outlineLevel === 1) &&
-
-        (font.bold === true || isHeadingStyle(style)) &&
-
-        trimmed.length < 100; // Başlıklar genellikle kısa olur
-
-
-
-    if (isMainByText || isMainByStyle || (isMainByListItem && trimmed.length < 100) || isMainByOutline) {
-
-        console.log(`[HEADING DETECT] MAIN: "${trimmed.substring(0, 40)}..." - byText:${isMainByText}, byStyle:${isMainByStyle}, byList:${isMainByListItem}, byOutline:${isMainByOutline}`);
+    if (isMainByOutline || isMainByText || isMainByStyle) {
 
         return PARA_TYPES.MAIN_HEADING;
 
@@ -776,41 +704,17 @@ function detectParagraphType(paraData, zone, isInBiblio) {
 
 
 
-    // Priority 8: Sub-Heading - ÇOK DAHA SIKI KURALLAR
+    // Priority 8: Sub-Heading
 
-    // Alt başlık için: BOLD + kısa metin + numara pattern'i
+    const isSubByOutline = typeof outlineLevel === 'number' && outlineLevel >= 2 && outlineLevel <= 8;
 
-    const hasSubListNumber = paraData.listString && /^\d+\.\d+(\.\d+)*\.?$/.test(paraData.listString.trim());
-
-    const isSubByListItem = paraData.isListItem && hasSubListNumber && font.bold === true;
-
-
-
-    // Text pattern kontrolü - SADECE satır başındaki numaralandırma + BOLD
-
-    const subHeadingTextPattern = /^\d+\.\d+(\.\d+)*\.?\s+.+/;
-
-    const isSubByText = subHeadingTextPattern.test(trimmed) && font.bold === true && trimmed.length < 150;
-
-
+    const isSubByText = isSubHeadingText(trimmed);
 
     const isSubByStyle = isHeadingStyle(style) && !isMainByStyle;
 
 
 
-    // outlineLevel 2-8 için BOLD şartı ekle
-
-    const isSubByOutline = typeof outlineLevel === 'number' && outlineLevel >= 2 && outlineLevel <= 8 &&
-
-        (font.bold === true || isHeadingStyle(style)) &&
-
-        trimmed.length < 150;
-
-
-
-    if (isSubByListItem || isSubByText || isSubByStyle || isSubByOutline) {
-
-        console.log(`[HEADING DETECT] SUB: "${trimmed.substring(0, 40)}..." - byList:${isSubByListItem}, byText:${isSubByText}, byStyle:${isSubByStyle}, byOutline:${isSubByOutline}`);
+    if (isSubByOutline || isSubByText || isSubByStyle) {
 
         return PARA_TYPES.SUB_HEADING;
 
@@ -1216,17 +1120,11 @@ async function validateSectionMargins(context, sections) {
 
     const marginErrors = [];
 
-    const pageSetups = []; // Store pageSetup references for reuse
-
 
 
     try {
 
-        // Batch load all section data - ÖNEMLI: pageSetup referanslarını sakla
-
-        console.log(`[MARGIN DEBUG] Toplam ${sections.items.length} bölüm yükleniyor...`);
-
-
+        // Batch load all section data
 
         for (let i = 0; i < sections.items.length; i++) {
 
@@ -1240,25 +1138,17 @@ async function validateSectionMargins(context, sections) {
 
                 pageSetup.load('topMargin, bottomMargin, leftMargin, rightMargin');
 
-                pageSetups.push(pageSetup); // Store reference
-
 
 
                 const body = section.body;
 
                 body.paragraphs.load('items');
 
-
-
-                console.log(`  - Bölüm ${i + 1}: pageSetup load istendi`);
-
             } catch (e) {
 
                 // Mac compatibility - getPageSetup may not be available
 
                 logStep('MARGIN', `Section ${i + 1}: getPageSetup not available`);
-
-                pageSetups.push(null);
 
             }
 
@@ -1268,31 +1158,19 @@ async function validateSectionMargins(context, sections) {
 
         await context.sync();
 
-        console.log(`[MARGIN DEBUG] context.sync() tamamlandı, değerler yüklendi`);
 
 
-
-        // Now validate each section - STORED pageSetup referanslarını kullan
+        // Now validate each section
 
         for (let i = 0; i < sections.items.length; i++) {
 
             const section = sections.items[i];
 
-            const pageSetup = pageSetups[i]; // Use stored reference instead of calling getPageSetup() again
-
-
-
-            if (!pageSetup) {
-
-                console.log(`[MARGIN DEBUG] Bölüm ${i + 1}: pageSetup null, atlanıyor`);
-
-                continue;
-
-            }
-
 
 
             try {
+
+                const pageSetup = section.getPageSetup();
 
                 const body = section.body;
 
@@ -1332,43 +1210,11 @@ async function validateSectionMargins(context, sections) {
 
 
 
-                // DEBUG LOG: Okunan ham değerleri konsola yazdır
-
-                console.log(`[MARGIN DEBUG] Bölüm ${i + 1}:`);
-
-                console.log(`  - topMargin: ${pageSetup.topMargin} pt (${(pageSetup.topMargin / 28.35).toFixed(2)} cm)`);
-
-                console.log(`  - bottomMargin: ${pageSetup.bottomMargin} pt (${(pageSetup.bottomMargin / 28.35).toFixed(2)} cm)`);
-
-                console.log(`  - leftMargin: ${pageSetup.leftMargin} pt (${(pageSetup.leftMargin / 28.35).toFixed(2)} cm)`);
-
-                console.log(`  - rightMargin: ${pageSetup.rightMargin} pt (${(pageSetup.rightMargin / 28.35).toFixed(2)} cm)`);
-
-                console.log(`  - İlk paragraf: "${firstParaText.substring(0, 30)}..."`);
-
-                console.log(`  - Ana bölüm başlangıcı mı: ${isMainChapterStart}`);
-
-                console.log(`  - Beklenen üst boşluk: ${expectedTopMargin} pt (${isMainChapterStart ? 7 : 3} cm)`);
-
-                console.log(`  - Tolerans: ±${tolerance} pt`);
-
-
-
-                logStep('MARGIN', `Bölüm ${i + 1}: top=${pageSetup.topMargin}pt, bottom=${pageSetup.bottomMargin}pt, left=${pageSetup.leftMargin}pt, right=${pageSetup.rightMargin}pt`);
-
-
-
                 // Check top margin
 
-                if (pageSetup.topMargin !== undefined && pageSetup.topMargin !== null) {
+                if (pageSetup.topMargin !== undefined) {
 
-                    const diff = Math.abs(pageSetup.topMargin - expectedTopMargin);
-
-                    console.log(`  - Üst boşluk farkı: ${diff.toFixed(2)} pt (tolerans: ${tolerance} pt)`);
-
-
-
-                    if (diff > tolerance) {
+                    if (Math.abs(pageSetup.topMargin - expectedTopMargin) > tolerance) {
 
                         const expectedCm = isMainChapterStart ? 7 : 3;
 
@@ -1378,7 +1224,7 @@ async function validateSectionMargins(context, sections) {
 
                             title: `Bölüm ${i + 1}: Üst Kenar Boşluğu`,
 
-                            description: `Üst kenar ${expectedCm} cm olmalı. Mevcut: ${(pageSetup.topMargin / 28.35).toFixed(2)} cm (${pageSetup.topMargin.toFixed(1)} pt)`,
+                            description: `Üst kenar ${expectedCm} cm olmalı. Mevcut: ${(pageSetup.topMargin / 28.35).toFixed(2)} cm`,
 
                             location: `Bölüm ${i + 1}`,
 
@@ -1388,71 +1234,67 @@ async function validateSectionMargins(context, sections) {
 
                     }
 
-                } else {
-
-                    console.log(`  - ⚠️ topMargin undefined veya null!`);
-
-                }
 
 
+                    // Check other margins (should always be 3cm)
 
-                // Check other margins (should always be 3cm)
+                    if (Math.abs(pageSetup.bottomMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
 
-                if (Math.abs(pageSetup.bottomMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
+                        marginErrors.push({
 
-                    marginErrors.push({
+                            type: 'error',
 
-                        type: 'error',
+                            title: `Bölüm ${i + 1}: Alt Kenar Boşluğu`,
 
-                        title: `Bölüm ${i + 1}: Alt Kenar Boşluğu`,
+                            description: `Alt kenar 3 cm olmalı. Mevcut: ${(pageSetup.bottomMargin / 28.35).toFixed(2)} cm`,
 
-                        description: `Alt kenar 3 cm olmalı. Mevcut: ${(pageSetup.bottomMargin / 28.35).toFixed(2)} cm`,
+                            location: `Bölüm ${i + 1}`,
 
-                        location: `Bölüm ${i + 1}`,
+                            severity: 'CRITICAL'
 
-                        severity: 'CRITICAL'
+                        });
 
-                    });
-
-                }
+                    }
 
 
 
-                if (Math.abs(pageSetup.leftMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
+                    if (Math.abs(pageSetup.leftMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
 
-                    marginErrors.push({
+                        marginErrors.push({
 
-                        type: 'error',
+                            type: 'error',
 
-                        title: `Bölüm ${i + 1}: Sol Kenar Boşluğu`,
+                            title: `Bölüm ${i + 1}: Sol Kenar Boşluğu`,
 
-                        description: `Sol kenar 3 cm olmalı. Mevcut: ${(pageSetup.leftMargin / 28.35).toFixed(2)} cm`,
+                            description: `Sol kenar 3 cm olmalı. Mevcut: ${(pageSetup.leftMargin / 28.35).toFixed(2)} cm`,
 
-                        location: `Bölüm ${i + 1}`,
+                            location: `Bölüm ${i + 1}`,
 
-                        severity: 'CRITICAL'
+                            severity: 'CRITICAL'
 
-                    });
+                        });
 
-                }
+                    }
 
 
 
-                if (Math.abs(pageSetup.rightMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
+                    if (Math.abs(pageSetup.rightMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
 
-                    marginErrors.push({
+                        marginErrors.push({
 
-                        type: 'error',
+                            type: 'error',
 
-                        title: `Bölüm ${i + 1}: Sağ Kenar Boşluğu`,
+                            title: `Bölüm ${i + 1}: Sağ Kenar Boşluğu`,
 
-                        description: `Sağ kenar 3 cm olmalı. Mevcut: ${(pageSetup.rightMargin / 28.35).toFixed(2)} cm`,
+                            description: `Sağ kenar 3 cm olmalı. Mevcut: ${(pageSetup.rightMargin / 28.35).toFixed(2)} cm`,
 
-                        location: `Bölüm ${i + 1}`,
+                            location: `Bölüm ${i + 1}`,
 
-                        severity: 'CRITICAL'
+                            severity: 'CRITICAL'
 
-                    });
+                        });
+
+                    }
 
                 }
 
@@ -1504,7 +1346,91 @@ function validateMainHeading(paraData, index) {
 
     const errors = [];
 
-    const { font, alignment, text } = paraData;
+    const { font, alignment, text, isListItem, listString } = paraData;
+
+
+
+    // === NEW: Başlık Numaralandırma (List String) Kontrolü ===
+
+    // Ana başlıklar numaralandırılmalı: "1.", "2.", "3." formatında
+
+    // Not: GİRİŞ, SONUÇ, ÖZET gibi özel başlıklar numaralandırılmaz
+
+    const trimmedText = (text || '').trim();
+
+    const isSpecialHeading = /^(GİRİŞ|SONUÇ|SONUÇ VE ÖNERİLER|TARTIŞMA|KAYNAKÇA|KAYNAKLAR|ÖZET|ABSTRACT|SUMMARY|ÖN\s*SÖZ|İÇİNDEKİLER|KISALTMALAR|TABLOLAR|ŞEKİLLER|GRAFİKLER|SİMGELER|EKLER?)$/i.test(trimmedText);
+
+
+
+    if (!isSpecialHeading) {
+
+        // Check if paragraph is a list item (has automatic numbering)
+
+        if (!isListItem) {
+
+            errors.push({
+
+                type: 'error',
+
+                title: 'Ana Başlık: Numaralandırılmamış',
+
+                description: 'Ana başlık otomatik numaralandırma listesi ile numaralandırılmalı (Örn: "1.", "2."). Word\'de Çok Düzeyli Liste kullanın.',
+
+                paraIndex: index,
+
+                severity: 'CRITICAL'
+
+            });
+
+        } else {
+
+            // Validate listString format: should be like "1.", "2.", "3." etc.
+
+            const mainHeadingPattern = /^\d+\.?$/;
+
+            const cleanListString = (listString || '').trim();
+
+
+
+            if (!cleanListString) {
+
+                errors.push({
+
+                    type: 'error',
+
+                    title: 'Ana Başlık: Numaralandırma Eksik',
+
+                    description: 'Ana başlık için otomatik numara (listString) alınamadı. Word\'de Çok Düzeyli Liste ile "1.", "2." formatında numaralandırın.',
+
+                    paraIndex: index,
+
+                    severity: 'CRITICAL'
+
+                });
+
+            } else if (!mainHeadingPattern.test(cleanListString)) {
+
+                errors.push({
+
+                    type: 'warning',
+
+                    title: 'Ana Başlık: Numaralandırma Formatı',
+
+                    description: `Ana başlık numarası "1.", "2." formatında olmalı. Mevcut: "${cleanListString}"`,
+
+                    paraIndex: index,
+
+                    severity: 'FORMAT'
+
+                });
+
+            }
+
+        }
+
+    }
+
+    // === END NEW ===
 
 
 
@@ -1606,7 +1532,81 @@ function validateSubHeading(paraData, index) {
 
     const errors = [];
 
-    const { font, alignment, text } = paraData;
+    const { font, alignment, text, isListItem, listString } = paraData;
+
+
+
+    // === NEW: Alt Başlık Numaralandırma (List String) Kontrolü ===
+
+    // Alt başlıklar hiyerarşik numaralandırılmalı: "1.1.", "1.1.2.", "2.3.1." formatında
+
+    // Check if paragraph is a list item (has automatic numbering)
+
+    if (!isListItem) {
+
+        errors.push({
+
+            type: 'error',
+
+            title: 'Alt Başlık: Numaralandırılmamış',
+
+            description: 'Alt başlık otomatik numaralandırma listesi ile numaralandırılmalı (Örn: "1.1.", "2.3.1."). Word\'de Çok Düzeyli Liste kullanın.',
+
+            paraIndex: index,
+
+            severity: 'CRITICAL'
+
+        });
+
+    } else {
+
+        // Validate listString format: should be hierarchical like "1.1.", "1.2.", "1.1.1.", "2.3.1."
+
+        // Pattern: at least two numbers separated by periods, optionally ending with period
+
+        const subHeadingPattern = /^\d+\.\d+(\.\d+)*\.?$/;
+
+        const cleanListString = (listString || '').trim();
+
+
+
+        if (!cleanListString) {
+
+            errors.push({
+
+                type: 'error',
+
+                title: 'Alt Başlık: Numaralandırma Eksik',
+
+                description: 'Alt başlık için otomatik numara (listString) alınamadı. Word\'de Çok Düzeyli Liste ile "1.1.", "1.2." formatında numaralandırın.',
+
+                paraIndex: index,
+
+                severity: 'CRITICAL'
+
+            });
+
+        } else if (!subHeadingPattern.test(cleanListString)) {
+
+            errors.push({
+
+                type: 'warning',
+
+                title: 'Alt Başlık: Numaralandırma Formatı',
+
+                description: `Alt başlık numarası "1.1.", "1.2.", "1.1.1." formatında olmalı. Mevcut: "${cleanListString}"`,
+
+                paraIndex: index,
+
+                severity: 'FORMAT'
+
+            });
+
+        }
+
+    }
+
+    // === END NEW ===
 
 
 
@@ -1700,15 +1700,55 @@ function validateBodyText(paraData, index) {
 
 
 
-    // DEBUG LOG: Metin paragrafı boşluk değerleri (HER PARAGRAF)
+    // === NEW: Manuel Tab/Boşluk Kontrolü ===
 
-    console.log(`[BODY DEBUG] Paragraf ${index + 1}: "${(text || '').substring(0, 40)}..."`);
+    // Check if text starts with Tab character or multiple spaces (manual indentation)
 
-    console.log(`  - lineSpacing: ${lineSpacing} pt, lineSpacingRule: ${paraData.lineSpacingRule}`);
+    if (text) {
 
-    console.log(`  - spaceBefore: ${spaceBefore} pt, spaceAfter: ${spaceAfter} pt`);
+        // Check for Tab character at the beginning
 
-    console.log(`  - firstLineIndent: ${firstLineIndent} pt, font.size: ${font.size} pt`);
+        if (text.startsWith('\t')) {
+
+            errors.push({
+
+                type: 'warning',
+
+                title: 'UYARI: Manuel Tab Kullanmayın',
+
+                description: 'Girintiyi "Tab" tuşuyla değil, Cetvel veya Paragraf ayarlarından 1.25 cm olarak ayarlayın.',
+
+                paraIndex: index,
+
+                severity: 'FORMAT'
+
+            });
+
+        }
+
+        // Check for multiple spaces at the beginning (2 or more spaces)
+
+        else if (/^\s{2,}/.test(text) && !text.startsWith('\t')) {
+
+            errors.push({
+
+                type: 'warning',
+
+                title: 'UYARI: Manuel Boşluk Kullanmayın',
+
+                description: 'Girintiyi boşluk tuşuyla değil, Cetvel veya Paragraf ayarlarından 1.25 cm olarak ayarlayın.',
+
+                paraIndex: index,
+
+                severity: 'FORMAT'
+
+            });
+
+        }
+
+    }
+
+    // === END NEW ===
 
 
 
@@ -1778,77 +1818,17 @@ function validateBodyText(paraData, index) {
 
 
 
-    // Manuel Tab karakteri kontrolü (\t)
+    // Line spacing: 1.5 (17-19pt)
 
-    // Stil girintisi yerine Tab kullanımını tespit et
-
-    if (paraData.hasManualTabs && paraData.tabCount > 0) {
-
-        // Birden fazla Tab kullanımı hata olarak işaretle
-
-        if (paraData.tabCount > EBYÜ_RULES.MAX_ALLOWED_TABS) {
-
-            errors.push({
-
-                type: 'warning',
-
-                title: 'Metin: Fazla Tab Kullanımı',
-
-                description: `${paraData.tabCount} adet Tab karakteri tespit edildi. Girintiler için paragraf stili kullanılmalı, manuel Tab değil.`,
-
-                paraIndex: index,
-
-                severity: 'FORMAT'
-
-            });
-
-        }
-
-
-
-        // Tab ile girinti yapılmış ama stilden girinti yok
-
-        if (paraData.startsWithTab && (firstLineIndent === undefined || firstLineIndent === 0)) {
-
-            errors.push({
-
-                type: 'warning',
-
-                title: 'Metin: Tab ile Girinti',
-
-                description: `Paragraf Tab karakteri ile başlıyor. Bunun yerine 1.25 cm ilk satır girintisi stili kullanın.`,
-
-                paraIndex: index,
-
-                severity: 'FORMAT'
-
-            });
-
-        }
-
-    }
-
-
-
-    // REGEX MANUEL TAB GİRİNTİ TESPİTİ
-
-    // Satır başında Tab karakteri (\t) varsa hata ver
-
-    // NOT: \s yerine sadece \t kullanıyoruz çünkü \s normal boşlukları da yakalar
-
-    const manualTabPattern = /^\t/;
-
-    if (manualTabPattern.test(text)) {
-
-        console.log(`    ⚠️ Manuel Tab girinti tespit edildi: "${text.substring(0, 20)}..."`);
+    if (lineSpacing !== undefined && (lineSpacing < EBYÜ_RULES.LINE_SPACING_1_5_MIN || lineSpacing > EBYÜ_RULES.LINE_SPACING_1_5_MAX)) {
 
         errors.push({
 
             type: 'warning',
 
-            title: 'Metin: Manuel Tab Girintisi',
+            title: 'Metin: Satır Aralığı',
 
-            description: 'Girinti için Tab tuşu kullanmayın, Paragraf Ayarlarından 1.25 cm ilk satır girintisi ayarlayın.',
+            description: `1.5 satır (17-19 pt) olmalı. Mevcut: ${lineSpacing.toFixed(1)} pt`,
 
             paraIndex: index,
 
@@ -1860,233 +1840,43 @@ function validateBodyText(paraData, index) {
 
 
 
-    // Line spacing: 1.5 satır
+    // Paragraph spacing: 6pt before and after
 
-    // lineSpacingRule: "AtLeast", "Exactly", "Multiple", "Single", "OneAndOneHalf" olabilir
+    if (spaceBefore !== undefined && Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
 
-    // 1.5 satır aralığı = Font boyutu * 1.5 (12pt için ~18pt)
+        errors.push({
 
-    // Multiple modunda lineSpacing değeri pt cinsinden verilir
+            type: 'warning',
 
+            title: 'Metin: Paragraf Öncesi',
 
+            description: `6 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} nk`,
 
-    const rule = paraData.lineSpacingRule;
+            paraIndex: index,
 
-    const fontSize = font.size || 12; // Varsayılan 12pt
+            severity: 'FORMAT'
 
-
-
-    // Font boyutuna göre beklenen 1.5 satır aralığı hesapla
-
-    const expectedMin = fontSize * 1.3; // Alt sınır
-
-    const expectedMax = fontSize * 1.7; // Üst sınır
-
-
-
-    console.log(`  - [LINE SPACING CHECK] rule: ${rule}, lineSpacing: ${lineSpacing}, fontSize: ${fontSize}`);
-
-    console.log(`    Beklenen aralık (font * 1.3-1.7): ${expectedMin.toFixed(1)} - ${expectedMax.toFixed(1)} pt`);
-
-
-
-    // lineSpacing undefined/null ise de kontrol et
-
-    if (lineSpacing === undefined || lineSpacing === null) {
-
-        console.log(`    ⚠️ lineSpacing undefined/null - değer yüklenememiş!`);
-
-        // lineSpacingRule'a bak - OneAndOneHalf ise sorun yok
-
-        if (rule !== 'OneAndOneHalf' && rule !== Word.LineSpacingRule.oneAndOneHalf) {
-
-            errors.push({
-
-                type: 'warning',
-
-                title: 'Metin: Satır Aralığı',
-
-                description: `1.5 satır aralığı olmalı. Mevcut: tespit edilemedi (Kural: ${rule || 'belirtilmemiş'})`,
-
-                paraIndex: index,
-
-                severity: 'FORMAT'
-
-            });
-
-        }
-
-    } else {
-
-        let isValidSpacing = false;
-
-
-
-        // 1. OneAndOneHalf (1.5 Satır) -> her zaman geçerli
-
-        if (rule === 'OneAndOneHalf' || rule === Word.LineSpacingRule.oneAndOneHalf) {
-
-            isValidSpacing = true;
-
-            console.log(`    ✓ OneAndOneHalf rule - VALID`);
-
-        }
-
-        // 2. Multiple modunda değer kontrolü (font * 1.3 ile font * 1.7 arası kabul)
-
-        else if (rule === 'Multiple' || rule === Word.LineSpacingRule.multiple) {
-
-            // Multiple modunda lineSpacing pt cinsinden veriliyor
-
-            isValidSpacing = (lineSpacing >= expectedMin && lineSpacing <= expectedMax);
-
-            console.log(`    ${isValidSpacing ? '✓' : '✗'} Multiple rule - ${lineSpacing}pt (beklenen: ${expectedMin.toFixed(1)}-${expectedMax.toFixed(1)}pt)`);
-
-        }
-
-        // 3. AtLeast veya Exactly modlarında pt değeri kontrolü
-
-        else if (rule === 'AtLeast' || rule === 'Exactly' ||
-
-            rule === Word.LineSpacingRule.atLeast || rule === Word.LineSpacingRule.exactly) {
-
-            isValidSpacing = (lineSpacing >= expectedMin && lineSpacing <= expectedMax);
-
-            console.log(`    ${isValidSpacing ? '✓' : '✗'} ${rule} rule - ${lineSpacing}pt (beklenen: ${expectedMin.toFixed(1)}-${expectedMax.toFixed(1)}pt)`);
-
-        }
-
-        // 4. Single veya Double -> geçersiz (1.5 satır olmalı)
-
-        else if (rule === 'Single' || rule === 'Double' ||
-
-            rule === Word.LineSpacingRule.single || rule === Word.LineSpacingRule.double) {
-
-            isValidSpacing = false;
-
-            console.log(`    ✗ ${rule} rule - INVALID (1.5 satır olmalı)`);
-
-        }
-
-        // 5. Kural belirtilmemişse pt değerine bak
-
-        else {
-
-            isValidSpacing = (lineSpacing >= expectedMin && lineSpacing <= expectedMax);
-
-            console.log(`    ${isValidSpacing ? '✓' : '✗'} Unknown/null rule - ${lineSpacing}pt (beklenen: ${expectedMin.toFixed(1)}-${expectedMax.toFixed(1)}pt)`);
-
-        }
-
-
-
-        if (!isValidSpacing) {
-
-            let currentValue = '';
-
-            if (rule === 'Multiple' && lineSpacing < 5) {
-
-                currentValue = `${lineSpacing.toFixed(2)} satır`;
-
-            } else {
-
-                currentValue = `${lineSpacing.toFixed(1)} pt`;
-
-            }
-
-
-
-            errors.push({
-
-                type: 'warning',
-
-                title: 'Metin: Satır Aralığı',
-
-                description: `1.5 satır aralığı olmalı. Mevcut: ${currentValue} (Kural: ${rule || 'belirtilmemiş'})`,
-
-                paraIndex: index,
-
-                severity: 'FORMAT'
-
-            });
-
-        }
+        });
 
     }
 
 
 
-    // PARAGRAPH SPACING: 6nk (4-8 arası kabul)
+    if (spaceAfter !== undefined && Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
 
-    console.log(`  - [SPACING CHECK] spaceBefore: ${spaceBefore}, spaceAfter: ${spaceAfter}`);
+        errors.push({
 
-    console.log(`    Beklenen aralık: ${EBYÜ_RULES.SPACING_6NK_MIN}-${EBYÜ_RULES.SPACING_6NK_MAX} pt`);
+            type: 'warning',
 
+            title: 'Metin: Paragraf Sonrası',
 
+            description: `6 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} nk`,
 
-    if (spaceBefore !== undefined && spaceBefore !== null) {
+            paraIndex: index,
 
-        const isValidBefore = spaceBefore >= EBYÜ_RULES.SPACING_6NK_MIN && spaceBefore <= EBYÜ_RULES.SPACING_6NK_MAX;
+            severity: 'FORMAT'
 
-        console.log(`    spaceBefore ${spaceBefore}pt: ${isValidBefore ? '✓ VALID' : '✗ INVALID'}`);
-
-
-
-        if (!isValidBefore) {
-
-            errors.push({
-
-                type: 'warning',
-
-                title: 'Metin: Paragraf Öncesi',
-
-                description: `6 nk olmalı (${EBYÜ_RULES.SPACING_6NK_MIN}-${EBYÜ_RULES.SPACING_6NK_MAX} kabul). Mevcut: ${spaceBefore.toFixed(1)} pt`,
-
-                paraIndex: index,
-
-                severity: 'FORMAT'
-
-            });
-
-        }
-
-    } else {
-
-        console.log(`    ⚠️ spaceBefore undefined/null`);
-
-    }
-
-
-
-    if (spaceAfter !== undefined && spaceAfter !== null) {
-
-        const isValidAfter = spaceAfter >= EBYÜ_RULES.SPACING_6NK_MIN && spaceAfter <= EBYÜ_RULES.SPACING_6NK_MAX;
-
-        console.log(`    spaceAfter ${spaceAfter}pt: ${isValidAfter ? '✓ VALID' : '✗ INVALID'}`);
-
-
-
-        if (!isValidAfter) {
-
-            errors.push({
-
-                type: 'warning',
-
-                title: 'Metin: Paragraf Sonrası',
-
-                description: `6 nk olmalı (${EBYÜ_RULES.SPACING_6NK_MIN}-${EBYÜ_RULES.SPACING_6NK_MAX} kabul). Mevcut: ${spaceAfter.toFixed(1)} pt`,
-
-                paraIndex: index,
-
-                severity: 'FORMAT'
-
-            });
-
-        }
-
-    } else {
-
-        console.log(`    ⚠️ spaceAfter undefined/null`);
+        });
 
     }
 
@@ -2486,22 +2276,6 @@ function validateCoverPage(paraData, index) {
 
 
 
-    // DEBUG LOG: Kapak sayfası tüm boşluk değerleri (HER PARAGRAF)
-
-    console.log(`[COVER DEBUG] Paragraf ${index + 1}: "${trimmed.substring(0, 40)}..."`);
-
-    console.log(`  - spaceBefore: ${spaceBefore} pt (tip: ${typeof spaceBefore})`);
-
-    console.log(`  - spaceAfter: ${spaceAfter} pt (tip: ${typeof spaceAfter})`);
-
-    console.log(`  - lineSpacing: ${paraData.lineSpacing} pt, rule: ${paraData.lineSpacingRule}`);
-
-    console.log(`  - font.size: ${font.size} pt, font.name: ${font.name}`);
-
-    console.log(`  - Beklenen 0nk aralığı: ${EBYÜ_RULES.SPACING_0NK_MIN}-${EBYÜ_RULES.SPACING_0NK_MAX} pt`);
-
-
-
     // Cover title should be 16pt (main titles on cover)
 
     const isMainCoverTitle = /^(T\.?C\.?|ERZİNCAN|ÜNİVERSİTESİ|ENSTİTÜSÜ|TEZİ)$/i.test(trimmed) ||
@@ -2552,19 +2326,9 @@ function validateCoverPage(paraData, index) {
 
 
 
-    // Cover spacing should be 0nk (0-2 arası kabul, undefined da kabul)
+    // Cover spacing should be 0nk
 
-    // Word bazen tam 0 yerine küsuratlı değer verebilir
-
-    console.log(`  - [COVER SPACING CHECK] Kontrol başlıyor...`);
-
-
-
-    // 0nk için: undefined veya 2'den küçük değerler kabul
-
-    if (spaceBefore !== undefined && spaceBefore !== null && spaceBefore > EBYÜ_RULES.SPACING_0NK_MAX) {
-
-        console.log(`    spaceBefore ${spaceBefore}pt: ✗ INVALID (beklenen: <${EBYÜ_RULES.SPACING_0NK_MAX})`);
+    if (spaceBefore !== undefined && spaceBefore > EBYÜ_RULES.SPACING_TOLERANCE) {
 
         errors.push({
 
@@ -2572,7 +2336,7 @@ function validateCoverPage(paraData, index) {
 
             title: 'KAPAK: Paragraf Öncesi Boşluk',
 
-            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} pt`,
+            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} nk`,
 
             paraIndex: index,
 
@@ -2580,17 +2344,11 @@ function validateCoverPage(paraData, index) {
 
         });
 
-    } else {
-
-        console.log(`    spaceBefore ${spaceBefore ?? 'undefined'}pt: ✓ VALID`);
-
     }
 
 
 
-    if (spaceAfter !== undefined && spaceAfter !== null && spaceAfter > EBYÜ_RULES.SPACING_0NK_MAX) {
-
-        console.log(`    spaceAfter ${spaceAfter}pt: ✗ INVALID (beklenen: <${EBYÜ_RULES.SPACING_0NK_MAX})`);
+    if (spaceAfter !== undefined && spaceAfter > EBYÜ_RULES.SPACING_TOLERANCE) {
 
         errors.push({
 
@@ -2598,65 +2356,7 @@ function validateCoverPage(paraData, index) {
 
             title: 'KAPAK: Paragraf Sonrası Boşluk',
 
-            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} pt`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    } else {
-
-        console.log(`    spaceAfter ${spaceAfter ?? 'undefined'}pt: ✓ VALID`);
-
-    }
-
-
-
-    // KAPAK: Manuel Tab veya Çoklu Boşluk ile Girinti Kontrolü
-
-    // Regex: Satır başında Tab veya 2+ boşluk varsa hata ver
-
-    const manualIndentPattern = /^[\t\s]{2,}/;
-
-    if (manualIndentPattern.test(text)) {
-
-        console.log(`    ⚠️ Manuel girinti tespit edildi: "${text.substring(0, 20)}..."`);
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'KAPAK: Manuel Girinti',
-
-            description: 'Girinti için Tab veya Boşluk tuşu kullanmayın, Paragraf Ayarlarını kullanın.',
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // KAPAK: firstLineIndent kontrolü (kapakta girinti olmamalı)
-
-    const firstLineIndent = paraData.firstLineIndent;
-
-    if (firstLineIndent !== undefined && firstLineIndent !== null && Math.abs(firstLineIndent) > 2) {
-
-        console.log(`    firstLineIndent ${firstLineIndent}pt: ✗ INVALID (kapakta 0 olmalı)`);
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'KAPAK: İlk Satır Girintisi',
-
-            description: `Kapakta girinti olmamalı. Mevcut: ${(firstLineIndent / 28.35).toFixed(2)} cm`,
+            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} nk`,
 
             paraIndex: index,
 
@@ -3176,7 +2876,7 @@ async function scanDocument() {
 
             // BATCH LOAD: Load all paragraph properties at once
 
-            // Using listItemOrNullObject for safe access (no ItemNotFound errors)
+            // NEW: Added isListItem, listItemOrNullObject/listString, listItemOrNullObject/level for heading numbering validation
 
             paragraphs.load([
 
@@ -3187,12 +2887,6 @@ async function scanDocument() {
                 'items/outlineLevel',
 
                 'items/tableNestingLevel',
-
-                'items/isListItem',
-
-                'items/listItemOrNullObject/listString',
-
-                'items/listItemOrNullObject/level',
 
                 'items/font/name',
 
@@ -3212,11 +2906,15 @@ async function scanDocument() {
 
                 'items/paragraphFormat/lineSpacing',
 
-                'items/paragraphFormat/lineSpacingRule',
-
                 'items/paragraphFormat/spaceBefore',
 
-                'items/paragraphFormat/spaceAfter'
+                'items/paragraphFormat/spaceAfter',
+
+                'items/isListItem',
+
+                'items/listItemOrNullObject/listString',
+
+                'items/listItemOrNullObject/level'
 
             ].join(','));
 
@@ -3264,39 +2962,23 @@ async function scanDocument() {
 
 
 
-                // Tab detection from raw text
+                // NEW: Extract listItem properties for heading numbering validation
 
-                const tabInfo = detectManualTabs(p.text);
-
-
-
-                // GÜVENLİ LİSTE VERİSİ OKUMA (listItemOrNullObject pattern)
-
-                // listItemOrNullObject hata fırlatmaz, isNullObject true ise liste değildir
+                const listItem = p.listItemOrNullObject;
 
                 let listString = '';
 
                 let listLevel = null;
 
-                let isList = false;
 
 
+                // Check if listItem was loaded and is not a null object
 
-                try {
+                if (listItem && !listItem.isNullObject) {
 
-                    if (p.listItemOrNullObject && !p.listItemOrNullObject.isNullObject) {
+                    listString = listItem.listString || '';
 
-                        isList = true;
-
-                        listString = p.listItemOrNullObject.listString || '';
-
-                        listLevel = p.listItemOrNullObject.level;
-
-                    }
-
-                } catch (e) {
-
-                    // listItemOrNullObject not available
+                    listLevel = listItem.level;
 
                 }
 
@@ -3313,26 +2995,6 @@ async function scanDocument() {
                     outlineLevel: p.outlineLevel,
 
                     tableNestingLevel: p.tableNestingLevel || 0,
-
-                    // Tab detection
-
-                    hasManualTabs: tabInfo.hasManualTabs,
-
-                    tabCount: tabInfo.tabCount,
-
-                    startsWithTab: tabInfo.startsWithTab,
-
-                    consecutiveTabsAtStart: tabInfo.consecutiveTabsAtStart,
-
-                    // ListItem (numbered heading) detection - using listItemOrNullObject
-
-                    isListItem: isList,
-
-                    listString: listString,  // "1.", "1.1." gibi değerler
-
-                    listLevel: listLevel,
-
-                    // Font info
 
                     font: {
 
@@ -3356,11 +3018,17 @@ async function scanDocument() {
 
                     lineSpacing: pFormat.lineSpacing,
 
-                    lineSpacingRule: pFormat.lineSpacingRule,
-
                     spaceBefore: pFormat.spaceBefore,
 
                     spaceAfter: pFormat.spaceAfter,
+
+                    // NEW: List item properties for heading numbering
+
+                    isListItem: p.isListItem || false,
+
+                    listString: listString,
+
+                    listLevel: listLevel,
 
                     paragraph: p // Keep reference for highlighting
 
