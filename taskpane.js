@@ -3446,17 +3446,59 @@ async function scanDocument() {
 
             for (let i = 0; i < paragraphDataList.length; i++) {
 
-                const text = paragraphDataList[i].text.trim().toUpperCase();
+                const text = paragraphDataList[i].text.trim();
 
-                if (text === 'ÖZET' || text.startsWith('ÖZET')) {
+                const textUpper = text.toUpperCase();
 
-                    ozetStartIndex = i;
+
+
+                // Skip TOC entries (they usually end with page numbers like "ÖZET...........5")
+
+                if (text.match(/\.{2,}\s*\d+\s*$/) || text.match(/\t\d+\s*$/)) {
+
+                    continue;
 
                 }
 
-                if (text === 'ABSTRACT' || text.startsWith('ABSTRACT')) {
 
-                    abstractStartIndex = i;
+
+                // Find ÖZET - check that next paragraph looks like content
+
+                if ((textUpper === 'ÖZET' || textUpper.startsWith('ÖZET')) && ozetStartIndex < 0) {
+
+                    if (i + 1 < paragraphDataList.length) {
+
+                        const nextText = paragraphDataList[i + 1].text.trim();
+
+                        // Real content is longer and doesn't start with number or look like TOC
+
+                        if (nextText.length > 15 && !nextText.match(/^\d/) && !nextText.match(/\.{2,}/)) {
+
+                            ozetStartIndex = i;
+
+                        }
+
+                    }
+
+                }
+
+
+
+                // Find ABSTRACT - same logic
+
+                if ((textUpper === 'ABSTRACT' || textUpper.startsWith('ABSTRACT')) && abstractStartIndex < 0) {
+
+                    if (i + 1 < paragraphDataList.length) {
+
+                        const nextText = paragraphDataList[i + 1].text.trim();
+
+                        if (nextText.length > 15 && !nextText.match(/^\d/) && !nextText.match(/\.{2,}/)) {
+
+                            abstractStartIndex = i;
+
+                        }
+
+                    }
 
                 }
 
@@ -3514,6 +3556,28 @@ async function scanDocument() {
 
 
 
+                // Calculate word count for DEBUG
+
+                let totalOzetWords = 0;
+
+                for (const p of ozetParagraphs) {
+
+                    totalOzetWords += (p.text || '').split(/\s+/).filter(w => w.length > 0).length;
+
+                }
+
+
+
+                // Show DEBUG in UI
+
+                addResult('warning', '📊 ÖZET DEBUG',
+
+                    `Paragraf index: ${ozetStartIndex + 1}, Bulunan paragraf: ${ozetParagraphs.length}, Kelime sayısı: ${totalOzetWords}`,
+
+                    'Debug', null, 'FORMAT');
+
+
+
                 const ozetErrors = validateAbstract(null, ozetParagraphs);
 
                 for (const err of ozetErrors) {
@@ -3525,6 +3589,14 @@ async function scanDocument() {
                     warningCount++;
 
                 }
+
+            } else {
+
+                addResult('warning', 'ÖZET DEBUG: Bulunamadı',
+
+                    'ÖZET başlığı bulunamadı veya sonrasında içerik algılanamadı. TOC\'deki ÖZET atlandı.',
+
+                    'Debug', null, 'FORMAT');
 
             }
 
