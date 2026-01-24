@@ -3474,11 +3474,13 @@ async function scanDocument() {
 
                     const text = paragraphDataList[i].text.trim();
 
-                    // Stop at "Anahtar Kelimeler" (case-insensitive, handle Turkish chars)
+                    const textLower = text.toLowerCase();
 
-                    if (/^anahtar\s*(kelime|sözcük)/i.test(text)) {
+                    // Stop at "Anahtar Kelimeler:" (use includes for Turkish char safety)
 
-                        logStep('ÖZET', `Found Anahtar Kelimeler at paragraph ${i + 1}`);
+                    if (textLower.includes('anahtar') && textLower.includes('kelime')) {
+
+                        logStep('ÖZET', `Found Anahtar Kelimeler at paragraph ${i + 1}: "${text}"`);
 
                         break;
 
@@ -3538,11 +3540,13 @@ async function scanDocument() {
 
                     const text = paragraphDataList[i].text.trim();
 
-                    // Stop at "Keywords" which marks end of ABSTRACT (case-insensitive)
+                    const textLower = text.toLowerCase();
 
-                    if (/^key\s*words?/i.test(text)) {
+                    // Stop at "Keywords" or "Keywords:" (use includes for safety)
 
-                        logStep('ABSTRACT', `Found Keywords at paragraph ${i + 1}`);
+                    if (textLower.includes('keywords') || textLower.includes('key words')) {
+
+                        logStep('ABSTRACT', `Found Keywords at paragraph ${i + 1}: "${text}"`);
 
                         break;
 
