@@ -3374,6 +3374,40 @@ async function scanDocument() {
 
 
 
+            // === DEBUG: Show spacing values for first 5 body text paragraphs in UI ===
+
+            const bodyTextParagraphs = paragraphDataList.filter(p =>
+
+                p.text.trim().length >= 30 &&
+
+                !isTOCEntry(p.style, p.text) &&
+
+                !isMainHeadingText(p.text.trim()) &&
+
+                !isSubHeadingText(p.text.trim())
+
+            ).slice(0, 5);
+
+
+
+            if (bodyTextParagraphs.length > 0) {
+
+                let debugInfo = '📊 DEBUG - İlk 5 Metin Paragrafının Değerleri:\\n';
+
+                for (const p of bodyTextParagraphs) {
+
+                    debugInfo += `P${p.index + 1}: lineSpacing=${p.lineSpacing ?? 'undefined'}, spaceBefore=${p.spaceBefore ?? 'undefined'}, spaceAfter=${p.spaceAfter ?? 'undefined'}, leftIndent=${p.leftIndent ?? 'undefined'}\\n`;
+
+                }
+
+                addResult('warning', '🔧 DEBUG: Spacing Değerleri', debugInfo, 'Belge Geneli', null, 'FORMAT');
+
+            }
+
+            // === END DEBUG ===
+
+
+
             const totalErrors = errorCount + marginErrors.filter(e => e.type === 'error').length;
 
             const totalWarnings = warningCount + marginErrors.filter(e => e.type === 'warning').length +
