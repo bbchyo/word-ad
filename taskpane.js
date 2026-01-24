@@ -112,21 +112,21 @@ const EBYÜ_RULES = {
 
     // Line Spacing
 
-    LINE_SPACING_1_5_MIN: 17,
+    LINE_SPACING_1_5_MIN: 15,
 
-    LINE_SPACING_1_5_MAX: 19,
+    LINE_SPACING_1_5_MAX: 22,
 
-    LINE_SPACING_SINGLE_MIN: 11,
+    LINE_SPACING_SINGLE_MIN: 10,
 
-    LINE_SPACING_SINGLE_MAX: 13,
+    LINE_SPACING_SINGLE_MAX: 14,
 
 
 
     // Detection
 
-    MIN_BODY_TEXT_LENGTH: 100,
+    MIN_BODY_TEXT_LENGTH: 30,
 
-    BLOCK_QUOTE_MIN_INDENT: 28,
+    BLOCK_QUOTE_MIN_INDENT: 20,
 
 
 
@@ -1700,6 +1700,14 @@ function validateBodyText(paraData, index) {
 
 
 
+    // === DEBUG: Log paragraph spacing values ===
+
+    logStep('BODY_TEXT_DEBUG', `Paragraf ${index + 1}: lineSpacing=${lineSpacing}, spaceBefore=${spaceBefore}, spaceAfter=${spaceAfter}, firstLineIndent=${firstLineIndent}, leftIndent=${paraData.leftIndent}, text="${(text || '').substring(0, 50)}..."`);
+
+    // === END DEBUG ===
+
+
+
     // === NEW: Manuel Tab/Boşluk Kontrolü ===
 
     // Check if text starts with Tab character or multiple spaces (manual indentation)
@@ -1818,9 +1826,9 @@ function validateBodyText(paraData, index) {
 
 
 
-    // Line spacing: 1.5 (17-19pt)
+    // Line spacing: 1.5 (15-22pt range)
 
-    if (lineSpacing !== undefined && (lineSpacing < EBYÜ_RULES.LINE_SPACING_1_5_MIN || lineSpacing > EBYÜ_RULES.LINE_SPACING_1_5_MAX)) {
+    if (lineSpacing !== undefined && lineSpacing !== null && (lineSpacing < EBYÜ_RULES.LINE_SPACING_1_5_MIN || lineSpacing > EBYÜ_RULES.LINE_SPACING_1_5_MAX)) {
 
         errors.push({
 
@@ -1828,7 +1836,7 @@ function validateBodyText(paraData, index) {
 
             title: 'Metin: Satır Aralığı',
 
-            description: `1.5 satır (17-19 pt) olmalı. Mevcut: ${lineSpacing.toFixed(1)} pt`,
+            description: `1.5 satır aralığı (15-22 pt) olmalı. Mevcut: ${lineSpacing.toFixed(1)} pt`,
 
             paraIndex: index,
 
@@ -1842,7 +1850,7 @@ function validateBodyText(paraData, index) {
 
     // Paragraph spacing: 6pt before and after
 
-    if (spaceBefore !== undefined && Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
+    if (spaceBefore !== undefined && spaceBefore !== null && Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
 
         errors.push({
 
@@ -1862,7 +1870,7 @@ function validateBodyText(paraData, index) {
 
 
 
-    if (spaceAfter !== undefined && Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
+    if (spaceAfter !== undefined && spaceAfter !== null && Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
 
         errors.push({
 
@@ -1879,6 +1887,36 @@ function validateBodyText(paraData, index) {
         });
 
     }
+
+
+
+    // === NEW: Block indent (Sol Girinti) detection ===
+
+    // If the paragraph has significant left indent (not first line indent), it might be improperly formatted
+
+    const leftIndent = paraData.leftIndent;
+
+    if (leftIndent !== undefined && leftIndent !== null && leftIndent >= EBYÜ_RULES.BLOCK_QUOTE_MIN_INDENT) {
+
+        // This looks like a block quote or indented section - check if it's properly styled
+
+        errors.push({
+
+            type: 'warning',
+
+            title: 'Metin: Blok Girinti Tespit Edildi',
+
+            description: `Bu paragrafta ${(leftIndent / 28.35).toFixed(2)} cm sol girinti var. Blok alıntı ise 11pt/italik olmalı, aksi halde girintiyi kaldırın.`,
+
+            paraIndex: index,
+
+            severity: 'FORMAT'
+
+        });
+
+    }
+
+    // === END NEW ===
 
 
 
