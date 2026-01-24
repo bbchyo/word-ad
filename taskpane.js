@@ -3118,13 +3118,29 @@ async function scanDocument() {
 
                 // Zone switching - KAPAK -> ÖN KISIM (Roma) -> ANA METİN (Normal) -> KAYNAKÇA
 
-                // Cover ends when we see front matter items (İÇİNDEKİLER, ÖNSÖZ, etc.)
+                // Cover is only the first 15 paragraphs OR until ÖZET/front matter
 
-                if (currentZone === ZONES.COVER && matchesAnyPattern(text, PATTERNS.FRONT_MATTER_IDENTIFIERS)) {
+                const textUpper = text.toUpperCase();
 
-                    currentZone = ZONES.FRONT_MATTER;
 
-                    logStep('ZONE', `Switched to FRONT_MATTER at paragraph ${i + 1}: "${text.substring(0, 30)}..."`);
+
+                // Cover ends at ÖZET, İÇİNDEKİLER, ÖNSÖZ, or after 15 paragraphs
+
+                if (currentZone === ZONES.COVER) {
+
+                    if (textUpper === 'ÖZET' || textUpper.startsWith('ÖZET') ||
+
+                        textUpper === 'ÖNSÖZ' || textUpper.startsWith('ÖNSÖZ') ||
+
+                        matchesAnyPattern(text, PATTERNS.FRONT_MATTER_IDENTIFIERS) ||
+
+                        i >= 15) {
+
+                        currentZone = ZONES.FRONT_MATTER;
+
+                        logStep('ZONE', `Switched to FRONT_MATTER at paragraph ${i + 1}: "${text.substring(0, 30)}..."`);
+
+                    }
 
                 }
 
@@ -3384,25 +3400,27 @@ async function scanDocument() {
 
 
 
-            // Validate ÖZET (Turkish abstract)
+            // Validate ÖZET (Turkish abstract) - words between ÖZET and Anahtar Kelimeler
 
             if (ozetStartIndex >= 0) {
 
                 const ozetParagraphs = [];
 
-                for (let i = ozetStartIndex + 1; i < paragraphDataList.length && i < ozetStartIndex + 20; i++) {
+                for (let i = ozetStartIndex + 1; i < paragraphDataList.length && i < ozetStartIndex + 30; i++) {
 
                     const text = paragraphDataList[i].text.trim();
 
-                    // Stop at next section header
+                    const textUpper = text.toUpperCase();
 
-                    if (text.toUpperCase() === 'ABSTRACT' || text.toUpperCase().startsWith('İÇİNDEKİLER') ||
+                    // Stop at "Anahtar Kelimeler" which marks end of ÖZET
 
-                        text.toUpperCase() === 'GİRİŞ' || isMainHeadingText(text)) {
+                    if (textUpper.startsWith('ANAHTAR KELİMELER') || textUpper.startsWith('ANAHTAR SÖZCÜKLER')) {
 
                         break;
 
                     }
+
+                    // Skip empty or very short paragraphs
 
                     if (text.length > 10) {
 
@@ -3430,25 +3448,27 @@ async function scanDocument() {
 
 
 
-            // Validate ABSTRACT (English abstract)
+            // Validate ABSTRACT (English abstract) - words between ABSTRACT and Keywords
 
             if (abstractStartIndex >= 0) {
 
                 const abstractParagraphs = [];
 
-                for (let i = abstractStartIndex + 1; i < paragraphDataList.length && i < abstractStartIndex + 20; i++) {
+                for (let i = abstractStartIndex + 1; i < paragraphDataList.length && i < abstractStartIndex + 30; i++) {
 
                     const text = paragraphDataList[i].text.trim();
 
-                    // Stop at next section header
+                    const textUpper = text.toUpperCase();
 
-                    if (text.toUpperCase().startsWith('İÇİNDEKİLER') || text.toUpperCase() === 'GİRİŞ' ||
+                    // Stop at "Keywords" which marks end of ABSTRACT
 
-                        isMainHeadingText(text)) {
+                    if (textUpper.startsWith('KEYWORDS') || textUpper.startsWith('KEY WORDS')) {
 
                         break;
 
                     }
+
+                    // Skip empty or very short paragraphs
 
                     if (text.length > 10) {
 
