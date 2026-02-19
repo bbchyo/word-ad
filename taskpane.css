@@ -543,6 +543,22 @@ body {
     background: linear-gradient(90deg, var(--error-bg), var(--bg-primary));
 }
 
+/* Segment labels in result cards */
+.segment-label {
+    display: inline-block;
+    padding: 1px 6px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    border-radius: 3px;
+    margin-right: 6px;
+    background: #e0e7ff;
+    color: #4338ca;
+    border: 1px solid #c7d2fe;
+    white-space: nowrap;
+}
+
 .footer {
     padding: var(--spacing-md);
     text-align: center;

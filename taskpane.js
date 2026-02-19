@@ -1,3771 +1,1158 @@
 /**
-
-* ============================================
-
-* EBYÜ Thesis Format Validator - Task Pane Logic
-
-* Erzincan Binali Yıldırım University
-
-* Based on: EBYÜ 2022 Tez Yazım Kılavuzu
-
-* ============================================
-
-*
-
-* OPTIMIZED VERSION with:
-
-* - Batch Loading (no sync inside loops)
-
-* - Section-Based Margin Validation
-
-* - Robust Ghost Heading Detection via outlineLevel
-
-* - Document Architecture approach
-
-*
-
-* ERROR SEVERITY:
-
-* - CRITICAL (Red): Margins, Ghost Headings, Wrong Font Family
-
-* - FORMAT (Yellow): Wrong Indent, Spacing, Size
-
-*/
-
-
+ * EBYÜ Thesis Format Validator v5.0 - Segment-Based Architecture
+ * Erzincan Binali Yıldırım Üniversitesi 2022 Tez Yazım Kılavuzu
+ */
 
 // ============================================
-
-// CONSTANTS - EBYÜ 2022 Strict Rules
-
+// CONSTANTS
 // ============================================
-
-
-
-const EBYÜ_RULES = {
-
-    // Page Layout
-
-    MARGIN_CM: 3,
-
-    MARGIN_POINTS: 85.05, // 3cm
-
-    MARGIN_TOP_SPECIAL_CM: 7,
-
-    MARGIN_TOP_SPECIAL_POINTS: 198.45, // 7cm for Main Chapter Starts
-
-    MARGIN_TOLERANCE: 2.5, // Tolerance for floating point diffs
-
-
-
-    // Fonts
-
+const RULES = {
+    MARGIN_POINTS: 85.05,
+    MARGIN_TOP_SPECIAL_POINTS: 198.45,
+    MARGIN_TOLERANCE: 3.0,
     FONT_NAME: "Times New Roman",
-
     FONT_SIZE_BODY: 12,
-
     FONT_SIZE_HEADING_MAIN: 14,
-
     FONT_SIZE_HEADING_SUB: 12,
-
     FONT_SIZE_BLOCK_QUOTE: 11,
-
     FONT_SIZE_FOOTNOTE: 10,
-
-    FONT_SIZE_TABLE: 11,
-
+    FONT_SIZE_TABLE_CONTENT: 11,
     FONT_SIZE_CAPTION_TITLE: 12,
-
     FONT_SIZE_CAPTION_CONTENT: 11,
-
-    FONT_SIZE_COVER_TITLE: 16,
-
+    FONT_SIZE_COVER: 16,
+    FONT_SIZE_COVER_ABD: 14,
+    FONT_SIZE_COVER_SUPPORT: 12,
     FONT_SIZE_EPIGRAPH: 11,
-
-
-
-    // Spacing
-
-    FIRST_LINE_INDENT_CM: 1.25,
-
-    FIRST_LINE_INDENT_POINTS: 35.4, // 1.25cm
-
-    BLOCK_QUOTE_INDENT_POINTS: 35.4,
-
-    BIBLIOGRAPHY_HANGING_INDENT_POINTS: 28.35, // 1cm
-
-    INDENT_TOLERANCE: 2.5,
-
-
-
-    // Paragraph Spacing (nk = points)
-
+    FONT_SIZE_PAGE_NUMBER: 10,
+    FIRST_LINE_INDENT_PT: 35.4,
+    BLOCK_QUOTE_INDENT_PT: 35.4,
+    BIBLIO_HANGING_INDENT_PT: 28.35,
+    INDENT_TOLERANCE: 3.0,
     SPACING_6NK: 6,
-
     SPACING_3NK: 3,
-
     SPACING_0NK: 0,
-
-    SPACING_TOLERANCE: 1.5,
-
-
-
-    // Line Spacing
-
+    SPACING_TOLERANCE: 2.0,
     LINE_SPACING_1_5_MIN: 15,
-
     LINE_SPACING_1_5_MAX: 22,
-
     LINE_SPACING_SINGLE_MIN: 10,
-
     LINE_SPACING_SINGLE_MAX: 14,
-
-
-
-    // Detection
-
-    MIN_BODY_TEXT_LENGTH: 30,
-
-    BLOCK_QUOTE_MIN_INDENT: 20,
-
-
-
-    // Page Dimensions (A4)
-
-    PAGE_WIDTH_POINTS: 595.3,
-
-    PAGE_HEIGHT_POINTS: 841.9,
-
-
-
-    // Page Number Rules (Sayfa Numaralandırma)
-
-    PAGE_NUMBER_FOOTER_DISTANCE_POINTS: 35.4, // 1.25 cm
-
-    PAGE_NUMBER_SIZE: 10,
-
-
-
-    // Abstract Rules (Özet Sayfası)
-
+    MIN_BODY_LENGTH: 30,
     ABSTRACT_MIN_WORDS: 200,
-
     ABSTRACT_MAX_WORDS: 250,
-
     ABSTRACT_MIN_KEYWORDS: 3,
-
     ABSTRACT_MAX_KEYWORDS: 5,
-
-
-
-    // Thesis Length (Tez Uzunluğu)
-
+    PAGE_NUMBER_FOOTER_PT: 35.4,
     MIN_PAGES_MASTERS: 50,
-
-    MIN_PAGES_PHD: 80,
-
-    MAX_PAGES_TOTAL: 500,
-
-
-
-    // Table Content Font Size
-
-    TABLE_CONTENT_SIZE: 11
-
+    MIN_PAGES_PHD: 80
 };
 
+const HIGHLIGHT = { CRITICAL: "Red", FORMAT: "Yellow", FOUND: "Cyan" };
 
-
-// Highlight Colors
-
-const HIGHLIGHT_COLORS = {
-
-    CRITICAL: "Red",
-
-    FORMAT: "Yellow",
-
-    FOUND: "Cyan"
-
-};
-
-
-
-// Paragraph Types
-
-const PARA_TYPES = {
-
-    TOC_ENTRY: 'TOC_ENTRY',
-
-    MAIN_HEADING: 'MAIN_HEADING',
-
-    SUB_HEADING: 'SUB_HEADING',
-
-    BODY_TEXT: 'BODY_TEXT',
-
-    BLOCK_QUOTE: 'BLOCK_QUOTE',
-
-    BIBLIOGRAPHY: 'BIBLIOGRAPHY',
-
-    CAPTION_TITLE: 'CAPTION_TITLE',
-
-    EPIGRAPH: 'EPIGRAPH',
-
-    LIST_ITEM: 'LIST_ITEM',
-
-    GHOST_HEADING: 'GHOST_HEADING',
-
-    FRONT_MATTER: 'FRONT_MATTER',
-
-    COVER_TEXT: 'COVER_TEXT',
-
-    EMPTY: 'EMPTY',
-
-    UNKNOWN: 'UNKNOWN'
-
-};
-
-
-
-// Document Zones
-
-const ZONES = {
-
-    COVER: 'COVER',
-
-    FRONT_MATTER: 'FRONT_MATTER',
-
-    TABLE_OF_CONTENTS: 'TABLE_OF_CONTENTS',
-
+// ============================================
+// SEGMENTS - Thesis structure in order
+// ============================================
+const SEG = {
+    OUTER_COVER: 'OUTER_COVER',
+    INNER_COVER: 'INNER_COVER',
+    ETHICS: 'ETHICS',
+    ORIGINALITY: 'ORIGINALITY',
+    GUIDE_COMPLIANCE: 'GUIDE_COMPLIANCE',
+    APPROVAL: 'APPROVAL',
+    PREFACE: 'PREFACE',
     ABSTRACT_TR: 'ABSTRACT_TR',
-
     ABSTRACT_EN: 'ABSTRACT_EN',
-
-    BODY: 'BODY',
-
-    BACK_MATTER: 'BACK_MATTER'
-
+    TOC: 'TOC',
+    ABBREVIATIONS: 'ABBREVIATIONS',
+    TABLE_LIST: 'TABLE_LIST',
+    FIGURE_LIST: 'FIGURE_LIST',
+    INTRO: 'INTRO',
+    BODY_CHAPTER: 'BODY_CHAPTER',
+    CONCLUSION: 'CONCLUSION',
+    BIBLIOGRAPHY: 'BIBLIOGRAPHY',
+    ETHICS_APPROVAL: 'ETHICS_APPROVAL',
+    APPENDIX: 'APPENDIX',
+    CV: 'CV'
 };
 
-
-
+// Paragraph types
+const PTYPE = {
+    CHAPTER_HEADING: 'CHAPTER_HEADING',
+    SUB_HEADING: 'SUB_HEADING',
+    BODY_TEXT: 'BODY_TEXT',
+    BLOCK_QUOTE: 'BLOCK_QUOTE',
+    BIBLIOGRAPHY: 'BIBLIOGRAPHY',
+    CAPTION: 'CAPTION',
+    EPIGRAPH: 'EPIGRAPH',
+    GHOST_HEADING: 'GHOST_HEADING',
+    COVER_TEXT: 'COVER_TEXT',
+    FRONT_MATTER: 'FRONT_MATTER',
+    TOC_ENTRY: 'TOC_ENTRY',
+    LIST_ITEM: 'LIST_ITEM',
+    EMPTY: 'EMPTY',
+    UNKNOWN: 'UNKNOWN'
+};
 // ============================================
-
 // DETECTION PATTERNS
-
 // ============================================
-
-
-
-const PATTERNS = {
-
-    // Main chapter headings (7cm top margin triggers)
-
-    MAIN_HEADING: [
-
+const PAT = {
+    CHAPTER: [
         /^(BİRİNCİ|İKİNCİ|ÜÇÜNCÜ|DÖRDÜNCÜ|BEŞİNCİ|ALTINCI|YEDİNCİ|SEKİZİNCİ|DOKUZUNCU|ONUNCU)\s*BÖLÜM$/i,
-
-        /^BÖLÜM\s*[IVX\d]+/i,
-
-        /^(GİRİŞ|SONUÇ|SONUÇ VE ÖNERİLER|TARTIŞMA|KAYNAKÇA|KAYNAKLAR|ÖZET|ABSTRACT|SUMMARY)$/i,
-
-        /^ÖN\s*SÖZ$/i,
-
-        /^KISALTMALAR\s*(LİSTESİ|DİZİNİ)?$/i,
-
-        /^(TABLOLAR|ŞEKİLLER|GRAFİKLER|SİMGELER)\s*(LİSTESİ|DİZİNİ)?$/i,
-
-        /^İÇİNDEKİLER$/i,
-
-        /^EKLER?$/i
-
+        /^BÖLÜM\s*[IVX\d]+/i
     ],
-
-
-
-    // Sub-headings (numbered like 1.1, 2.3.1)
-
-    SUB_HEADING: [
-
-        /^\d+\.\d+(\.\d+)*\.?\s+[A-ZÇĞİÖŞÜa-zçğıöşü]/
-
+    SPECIAL_HEADING: [
+        /^GİRİŞ$/i, /^SONUÇ$/i, /^SONUÇ VE ÖNERİLER$/i, /^TARTIŞMA$/i,
+        /^KAYNAKÇA$/i, /^KAYNAKLAR$/i, /^REFERANSLAR$/i
     ],
-
-
-
-    // Captions
-
+    SUB_HEADING: [/^\d+\.\d+(\.\d+)*\.?\s+[A-ZÇĞİÖŞÜa-zçğıöşü]/],
     CAPTION_TABLE: /^Tablo\s*(\d+)\.(\d+)\s*[:.]/i,
-
     CAPTION_FIGURE: /^(Şekil|Grafik|Resim|Harita)\s*(\d+)\.(\d+)\s*[:.]/i,
-
-
-
-    // TOC patterns
-
-    TOC_STYLE: [/^TOC/i, /^İçindekiler/i, /^Table of Contents/i],
-
-    TOC_CONTENT: /\.{5,}\s*(i|v|x|\d)+$/i,
-
-    TOC_START: /^İÇİNDEKİLER$/i,
-
-
-
-    // Zone switching
-
-    BODY_START: [/^GİRİŞ$/i],
-
-    BACK_MATTER_START: [/^(KAYNAKÇA|KAYNAKLAR|REFERANSLAR|REFERENCES)$/i],
-
-
-
-    // Cover page patterns
-
-    COVER_IDENTIFIERS: [
-
-        /^T\.?C\.?$/i,
-
-        /^ERZİNCAN\s*BİNALİ\s*YILDIRIM/i,
-
-        /^ÜNİVERSİTESİ$/i,
-
+    TOC_DOTS: /\.{3,}\s*(i{1,4}|v|x{0,3}|\d+)\s*$/i,
+    COVER: [
+        /^T\.?C\.?$/i, /^ERZİNCAN\s*BİNALİ\s*YILDIRIM/i, /^ÜNİVERSİTESİ$/i,
         /^(FEN|SOSYAL)\s*BİLİMLERİ\s*ENSTİTÜSÜ$/i,
-
-        /^(YÜKSEK\s*LİSANS|DOKTORA)\s*TEZİ$/i,
-
-        /^DANIŞMAN/i,
-
-        /^Tez\s*Danışmanı/i
-
+        /^(YÜKSEK\s*LİSANS|DOKTORA)\s*(TEZİ)?$/i,
+        /^DANIŞMAN/i, /^Tez\s*Danışmanı/i, /^Hazırlayan/i
     ],
-
-
-
-    // Front matter (Roma rakamları - ÖN KISIM)
-
-    FRONT_MATTER_IDENTIFIERS: [
-
-        /^İÇİNDEKİLER$/i,
-
-        /^ÖN\s*SÖZ$/i,
-
-        /^ÖNSÖZ$/i,
-
-        /^TEŞEKKÜR$/i,
-
-        /^KISALTMALAR/i,
-
-        /^SİMGELER/i,
-
-        /^TABLOLAR\s*(LİSTESİ|DİZİNİ)?$/i,
-
-        /^ŞEKİLLER\s*(LİSTESİ|DİZİNİ)?$/i,
-
-        /^ÖZET$/i,
-
-        /^ABSTRACT$/i,
-
-        // Additional front matter pages (not cover)
-
-        /^BİLİMSEL\s*ETİ/i,
-
-        /^ETİK\s*BEYAN/i,
-
-        /^KABUL\s*VE\s*ONAY/i,
-
-        /^ONAY\s*SAYFASI/i,
-
-        /^KILAVUZ/i,
-
-        /^T\.?C\.?\s*(ERZINCAN|ERZİNCAN)/i,
-
-        /MÜDÜRLÜĞÜNE$/i,
-
-        /^JÜRİ\s*/i,
-
-        /^TEZ\s*SAVUNMA/i,
-
-        /^BEYAN$/i,
-
-        /^ORİJİNALLİK/i
-
-    ],
-
-
-
-    // Abstract patterns
-
-    ABSTRACT_TR: /^ÖZET$/i,
-
-    ABSTRACT_EN: /^ABSTRACT$/i,
-
+    SEG_DETECT: {
+        ETHICS: /^BİLİMSEL\s*ETİ[KĞ]/i,
+        ORIGINALITY: /^TEZ\s*ÖZGÜNLÜK/i,
+        GUIDE: /^KILAVUZ(A)?\s*UYGUNLUK/i,
+        APPROVAL: /^KABUL\s*VE\s*ONAY/i,
+        PREFACE: /^(ÖN\s*SÖZ|ÖNSÖZ)$/i,
+        ABSTRACT_TR: /^ÖZET$/i,
+        ABSTRACT_EN: /^ABSTRACT$/i,
+        TOC: /^İÇİNDEKİLER$/i,
+        ABBREV: /^(SİMGELER|KISALTMALAR)/i,
+        TABLE_LIST: /^TABLOLAR\s*(LİSTESİ|DİZİNİ)?$/i,
+        FIGURE_LIST: /^ŞEKİLLER\s*(LİSTESİ|DİZİNİ)?$/i,
+        INTRO: /^GİRİŞ$/i,
+        CONCLUSION: /^(SONUÇ|SONUÇ\s*VE\s*ÖNERİLER)$/i,
+        BIBLIO: /^(KAYNAKÇA|KAYNAKLAR|REFERANSLAR)$/i,
+        ETHICS_APPROVAL: /^ETİK\s*KURUL\s*ONAYI$/i,
+        APPENDIX: /^EKLER?$/i,
+        CV: /^ÖZGEÇMİŞ$/i
+    },
     KEYWORDS_TR: /^Anahtar\s*Kelimeler\s*:/i,
-
-    KEYWORDS_EN: /^Keywords\s*:/i
-
+    KEYWORDS_EN: /^Keywords\s*:/i,
+    EPIGRAPH_QUOTE: /^[""].*[""]$/
 };
 
-
-
 // ============================================
-
-// GLOBAL STATE
-
+// STATE
 // ============================================
-
-
-
 let validationResults = [];
-
 let scanLog = [];
-
 let isScanning = false;
 
-
-
 // ============================================
-
-// LOGGING UTILITY
-
+// HELPERS
 // ============================================
-
-
-
-function logStep(category, message, details = null) {
-
-    const timestamp = new Date().toISOString();
-
-    scanLog.push({ timestamp, category, message, details });
-
-    console.log(`[${category}] ${message}`, details || '');
-
+function logStep(cat, msg, det = null) {
+    scanLog.push({ ts: new Date().toISOString(), cat, msg, det });
+    console.log(`[${cat}] ${msg}`, det || '');
 }
 
-
-
-// ============================================
-
-// HELPER FUNCTIONS - Pattern Matching
-
-// ============================================
-
-
-
-function matchesAnyPattern(text, patterns) {
-
+function matchAny(text, patterns) {
     if (!text || !patterns) return false;
-
     return patterns.some(p => p.test(text.trim()));
-
 }
 
-
-
-function isMainHeadingText(text) {
-
-    return matchesAnyPattern(text, PATTERNS.MAIN_HEADING);
-
-}
-
-
-
-function isSubHeadingText(text) {
-
-    return matchesAnyPattern(text, PATTERNS.SUB_HEADING);
-
-}
-
-
-
-function isTOCEntry(style, text) {
-
-    const styleLower = (style || '').toLowerCase();
-
-    if (styleLower.includes('toc') || styleLower.includes('içindekiler')) return true;
-
-    if (PATTERNS.TOC_CONTENT.test(text)) return true;
-
+function isCentered(al) {
+    if (al === undefined || al === null) return true;
+    if (typeof al === 'string') return al.toLowerCase() === 'centered';
+    if (typeof al === 'number') return al === 2;
+    try { if (al === Word.Alignment.centered) return true; } catch (e) { }
     return false;
-
 }
 
+function isJustified(al) {
+    if (al === undefined || al === null) return true;
+    if (typeof al === 'string') return al.toLowerCase() === 'justified';
+    if (typeof al === 'number') return al === 3;
+    try { if (al === Word.Alignment.justified) return true; } catch (e) { }
+    return false;
+}
 
+function isRightAligned(al) {
+    if (al === undefined || al === null) return false;
+    if (typeof al === 'string') return al.toLowerCase() === 'right';
+    if (typeof al === 'number') return al === 1;
+    return false;
+}
+
+function isHeadingStyle(s) {
+    if (!s) return false;
+    const l = s.toLowerCase();
+    return l.includes('heading') || l.includes('başlık') || l.includes('title');
+}
+
+function isAllUpperCase(text) {
+    const letters = text.replace(/[^a-zA-ZçğıöşüÇĞİÖŞÜ]/g, '');
+    if (letters.length === 0) return true;
+    return letters === letters.toUpperCase();
+}
 
 function isCaption(text) {
-
-    const trimmed = (text || '').trim();
-
-    const tableMatch = trimmed.match(PATTERNS.CAPTION_TABLE);
-
-    const figureMatch = trimmed.match(PATTERNS.CAPTION_FIGURE);
-
-    return {
-
-        isCaption: !!(tableMatch || figureMatch),
-
-        type: tableMatch ? 'table' : (figureMatch ? 'figure' : null),
-
-        isCorrect: !!(tableMatch || figureMatch)
-
-    };
-
+    const t = (text || '').trim();
+    return !!(t.match(PAT.CAPTION_TABLE) || t.match(PAT.CAPTION_FIGURE));
 }
 
-
-
-function isCoverItem(text) {
-
-    return matchesAnyPattern(text, PATTERNS.COVER_IDENTIFIERS);
-
-}
-
-
-
-/**
-
-* Check if alignment is centered - handles Word.Alignment enum variations
-
-* Word.Alignment.centered can be: "Centered", "centered", 2, or the enum value
-
-*/
-
-function isCentered(alignment) {
-
-    if (alignment === undefined || alignment === null) return true; // Skip check if undefined
-
-
-
-    // String comparison (case-insensitive)
-
-    if (typeof alignment === 'string') {
-
-        return alignment.toLowerCase() === 'centered';
-
-    }
-
-
-
-    // Numeric comparison (Word.Alignment.centered = 2)
-
-    if (typeof alignment === 'number') {
-
-        return alignment === 2;
-
-    }
-
-
-
-    // Direct enum comparison
-
-    if (alignment === Word.Alignment.centered) {
-
-        return true;
-
-    }
-
-
-
+function isTOCEntry(style, text) {
+    const s = (style || '').toLowerCase();
+    if (s.includes('toc') || s.includes('içindekiler')) return true;
+    if (PAT.TOC_DOTS.test(text)) return true;
     return false;
-
 }
 
-
-
-function isHeadingStyle(style) {
-
-    if (!style) return false;
-
-    const s = style.toLowerCase();
-
-    return s.includes('heading') || s.includes('başlık') || s.includes('title');
-
+function wordCount(text) {
+    return (text || '').split(/\s+/).filter(w => w.length > 0).length;
 }
-
-
-
 // ============================================
-
-// PARAGRAPH TYPE DETECTION (Priority-Based)
-
+// SEGMENT DETECTION - Builds thesis structure map
 // ============================================
+function detectSegments(paragraphDataList) {
+    const segments = [];
+    let coverCount = 0; // Track T.C. occurrences for outer/inner cover
 
+    for (let i = 0; i < paragraphDataList.length; i++) {
+        const text = (paragraphDataList[i].text || '').trim();
+        const upper = text.toUpperCase();
 
+        // T.C. marks cover pages
+        if (/^T\.?C\.?$/.test(text)) {
+            coverCount++;
+            if (coverCount === 1) {
+                segments.push({ type: SEG.OUTER_COVER, startIdx: i, endIdx: -1, title: 'Dış Kapak' });
+            } else if (coverCount === 2) {
+                // Close outer cover
+                const outerCover = segments.find(s => s.type === SEG.OUTER_COVER && s.endIdx === -1);
+                if (outerCover) outerCover.endIdx = i - 1;
+                segments.push({ type: SEG.INNER_COVER, startIdx: i, endIdx: -1, title: 'İç Kapak' });
+            }
+            continue;
+        }
 
-/**
+        // Detect segment-starting headings
+        const detectors = [
+            { pat: PAT.SEG_DETECT.ETHICS, type: SEG.ETHICS, title: 'Bilimsel Etiğe Uygunluk' },
+            { pat: PAT.SEG_DETECT.ORIGINALITY, type: SEG.ORIGINALITY, title: 'Tez Özgünlük Sayfası' },
+            { pat: PAT.SEG_DETECT.GUIDE, type: SEG.GUIDE_COMPLIANCE, title: 'Kılavuza Uygunluk' },
+            { pat: PAT.SEG_DETECT.APPROVAL, type: SEG.APPROVAL, title: 'Kabul ve Onay Tutanağı' },
+            { pat: PAT.SEG_DETECT.PREFACE, type: SEG.PREFACE, title: 'Ön Söz' },
+            { pat: PAT.SEG_DETECT.ABSTRACT_TR, type: SEG.ABSTRACT_TR, title: 'Özet' },
+            { pat: PAT.SEG_DETECT.ABSTRACT_EN, type: SEG.ABSTRACT_EN, title: 'Abstract' },
+            { pat: PAT.SEG_DETECT.TOC, type: SEG.TOC, title: 'İçindekiler' },
+            { pat: PAT.SEG_DETECT.ABBREV, type: SEG.ABBREVIATIONS, title: 'Simgeler ve Kısaltmalar' },
+            { pat: PAT.SEG_DETECT.TABLE_LIST, type: SEG.TABLE_LIST, title: 'Tablolar Listesi' },
+            { pat: PAT.SEG_DETECT.FIGURE_LIST, type: SEG.FIGURE_LIST, title: 'Şekiller Listesi' },
+            { pat: PAT.SEG_DETECT.INTRO, type: SEG.INTRO, title: 'Giriş' },
+            { pat: PAT.SEG_DETECT.CONCLUSION, type: SEG.CONCLUSION, title: 'Sonuç' },
+            { pat: PAT.SEG_DETECT.BIBLIO, type: SEG.BIBLIOGRAPHY, title: 'Kaynakça' },
+            { pat: PAT.SEG_DETECT.ETHICS_APPROVAL, type: SEG.ETHICS_APPROVAL, title: 'Etik Kurul Onayı' },
+            { pat: PAT.SEG_DETECT.APPENDIX, type: SEG.APPENDIX, title: 'Ekler' },
+            { pat: PAT.SEG_DETECT.CV, type: SEG.CV, title: 'Özgeçmiş' }
+        ];
 
-* Detect paragraph type using outlineLevel as primary indicator
+        // Skip TOC entries (lines with dots and page numbers)
+        if (PAT.TOC_DOTS.test(text)) continue;
 
-* @param {Object} paraData - Pre-loaded paragraph data
+        for (const det of detectors) {
+            if (det.pat.test(text)) {
+                // Don't duplicate segments
+                if (!segments.find(s => s.type === det.type)) {
+                    // Close previous open segment
+                    const lastOpen = segments.findLast(s => s.endIdx === -1);
+                    if (lastOpen) lastOpen.endIdx = i - 1;
+                    segments.push({ type: det.type, startIdx: i, endIdx: -1, title: det.title });
+                }
+                break;
+            }
+        }
 
-* @param {string} zone - Current document zone
-
-* @param {boolean} isInBiblio - Currently in bibliography section
-
-* @returns {string} - PARA_TYPES value
-
-*/
-
-function detectParagraphType(paraData, zone, isInBiblio) {
-
-    const { text, style, outlineLevel, tableNestingLevel, leftIndent, font } = paraData;
-
-    const trimmed = (text || '').trim();
-
-
-
-    // Priority 1: Inside table = table content
-
-    if (tableNestingLevel > 0) {
-
-        const captionInfo = isCaption(trimmed);
-
-        return captionInfo.isCaption ? PARA_TYPES.CAPTION_TITLE : PARA_TYPES.BODY_TEXT;
-
+        // Detect BÖLÜM headings
+        if (matchAny(text, PAT.CHAPTER)) {
+            const lastOpen = segments.findLast(s => s.endIdx === -1);
+            if (lastOpen) lastOpen.endIdx = i - 1;
+            segments.push({ type: SEG.BODY_CHAPTER, startIdx: i, endIdx: -1, title: text });
+        }
     }
 
+    // Close last segment
+    const lastOpen = segments.findLast(s => s.endIdx === -1);
+    if (lastOpen) lastOpen.endIdx = paragraphDataList.length - 1;
 
+    return segments;
+}
 
-    // Priority 2: Empty paragraph - check for Ghost Heading
+function getSegmentForParagraph(segments, paraIdx) {
+    for (const seg of segments) {
+        if (paraIdx >= seg.startIdx && paraIdx <= seg.endIdx) return seg;
+    }
+    return null;
+}
 
-    if (trimmed.length === 0) {
+// ============================================
+// PARAGRAPH TYPE DETECTION
+// ============================================
+function detectParaType(pd, segment) {
+    const text = (pd.text || '').trim();
+    const { style, outlineLevel, tableNestingLevel, leftIndent } = pd;
 
-        // Ghost Heading: empty text but has outline level (not body text level)
+    if (tableNestingLevel > 0) return isCaption(text) ? PTYPE.CAPTION : PTYPE.BODY_TEXT;
 
-        // In Word, outlineLevel is a number 0-8 for headings, or "BodyText" for normal text
-
+    // Empty - check ghost heading
+    if (text.length === 0) {
         if (outlineLevel !== undefined && outlineLevel !== null) {
-
-            // If outlineLevel is a number (0-8), it's a heading level
-
-            if (typeof outlineLevel === 'number' || (typeof outlineLevel === 'string' && !isNaN(parseInt(outlineLevel)))) {
-
-                const level = typeof outlineLevel === 'number' ? outlineLevel : parseInt(outlineLevel);
-
-                if (level >= 0 && level <= 8) {
-
-                    return PARA_TYPES.GHOST_HEADING;
-
-                }
-
+            if (typeof outlineLevel === 'number' && outlineLevel >= 0 && outlineLevel <= 8) return PTYPE.GHOST_HEADING;
+            if (typeof outlineLevel === 'string' && !isNaN(parseInt(outlineLevel))) {
+                const lv = parseInt(outlineLevel);
+                if (lv >= 0 && lv <= 8) return PTYPE.GHOST_HEADING;
             }
-
         }
-
-        // Also check heading style
-
-        if (isHeadingStyle(style)) {
-
-            return PARA_TYPES.GHOST_HEADING;
-
-        }
-
-        return PARA_TYPES.EMPTY;
-
+        if (isHeadingStyle(style)) return PTYPE.GHOST_HEADING;
+        return PTYPE.EMPTY;
     }
 
-
-
-    // Priority 3: TOC entries
-
-    if (isTOCEntry(style, trimmed)) {
-
-        return PARA_TYPES.TOC_ENTRY;
-
+    // Cover/front matter segments
+    if (segment) {
+        const st = segment.type;
+        if (st === SEG.OUTER_COVER || st === SEG.INNER_COVER) return PTYPE.COVER_TEXT;
+        if ([SEG.ETHICS, SEG.ORIGINALITY, SEG.GUIDE_COMPLIANCE, SEG.APPROVAL, SEG.PREFACE].includes(st)) return PTYPE.FRONT_MATTER;
+        if (st === SEG.TOC) return PTYPE.TOC_ENTRY;
     }
 
+    // TOC by style
+    if (isTOCEntry(style, text)) return PTYPE.TOC_ENTRY;
 
+    // Captions
+    if (isCaption(text)) return PTYPE.CAPTION;
 
-    // Priority 4: Cover page
-
-    if (zone === ZONES.COVER || isCoverItem(trimmed)) {
-
-        return PARA_TYPES.COVER_TEXT;
-
+    // Bibliography segment
+    if (segment && segment.type === SEG.BIBLIOGRAPHY && text.length > 5) {
+        if (!PAT.SEG_DETECT.BIBLIO.test(text)) return PTYPE.BIBLIOGRAPHY;
     }
 
+    // Chapter heading
+    if (matchAny(text, PAT.CHAPTER) || matchAny(text, PAT.SPECIAL_HEADING)) return PTYPE.CHAPTER_HEADING;
+    if (outlineLevel === 0 || outlineLevel === 1) return PTYPE.CHAPTER_HEADING;
+    if (isHeadingStyle(style) && (/heading\s*1/i.test(style) || /başlık\s*1/i.test(style))) return PTYPE.CHAPTER_HEADING;
 
+    // Sub-heading
+    if (matchAny(text, PAT.SUB_HEADING)) return PTYPE.SUB_HEADING;
+    if (typeof outlineLevel === 'number' && outlineLevel >= 2 && outlineLevel <= 8) return PTYPE.SUB_HEADING;
+    if (isHeadingStyle(style)) return PTYPE.SUB_HEADING;
 
-    // Priority 5: Captions
+    // Block quote
+    if (leftIndent && leftIndent >= 20) return PTYPE.BLOCK_QUOTE;
 
-    const captionInfo = isCaption(trimmed);
+    // Body text
+    if (text.length >= 20) return PTYPE.BODY_TEXT;
 
-    if (captionInfo.isCaption) {
-
-        return PARA_TYPES.CAPTION_TITLE;
-
-    }
-
-
-
-    // Priority 6: Bibliography zone
-
-    if (isInBiblio && trimmed.length > 5) {
-
-        if (!matchesAnyPattern(trimmed, PATTERNS.BACK_MATTER_START)) {
-
-            return PARA_TYPES.BIBLIOGRAPHY;
-
-        }
-
-    }
-
-
-
-    // Priority 7: Main Heading (outlineLevel first, then text pattern)
-
-    const isMainByOutline = outlineLevel === 0 || outlineLevel === 1;
-
-    const isMainByText = isMainHeadingText(trimmed);
-
-    const isMainByStyle = isHeadingStyle(style) && (/heading\s*1/i.test(style) || /başlık\s*1/i.test(style));
-
-
-
-    if (isMainByOutline || isMainByText || isMainByStyle) {
-
-        return PARA_TYPES.MAIN_HEADING;
-
-    }
-
-
-
-    // Priority 8: Sub-Heading
-
-    const isSubByOutline = typeof outlineLevel === 'number' && outlineLevel >= 2 && outlineLevel <= 8;
-
-    const isSubByText = isSubHeadingText(trimmed);
-
-    const isSubByStyle = isHeadingStyle(style) && !isMainByStyle;
-
-
-
-    if (isSubByOutline || isSubByText || isSubByStyle) {
-
-        return PARA_TYPES.SUB_HEADING;
-
-    }
-
-
-
-    // Priority 9: Block quote (significant left indent)
-
-    if (leftIndent && leftIndent >= EBYÜ_RULES.BLOCK_QUOTE_MIN_INDENT) {
-
-        return PARA_TYPES.BLOCK_QUOTE;
-
-    }
-
-
-
-    // Priority 10: Body text
-
-    if (trimmed.length >= 20) {
-
-        return PARA_TYPES.BODY_TEXT;
-
-    }
-
-
-
-    return PARA_TYPES.UNKNOWN;
-
+    return PTYPE.UNKNOWN;
 }
-
-
-
 // ============================================
-
-// RESULT MANAGEMENT
-
+// RESULT MANAGEMENT & UI
 // ============================================
-
-
-
-function addResult(type, title, description, location = null, paraIndex = null, severity = null) {
-
+function addResult(type, title, desc, location = null, paraIndex = null, severity = null, segment = null) {
     validationResults.push({
-
-        type,
-
-        title,
-
-        description,
-
+        type, title, description: desc,
         location: location || 'Belge Geneli',
-
-        paraIndex,
-
-        severity: severity || (type === 'error' ? 'CRITICAL' : 'FORMAT'),
-
-        timestamp: new Date().toISOString()
-
+        paraIndex, severity: severity || (type === 'error' ? 'CRITICAL' : 'FORMAT'),
+        segment: segment || '', timestamp: new Date().toISOString()
     });
-
 }
 
-
-
-function clearResults() {
-
-    validationResults = [];
-
-    scanLog = [];
-
-}
-
-
+function clearResults() { validationResults = []; scanLog = []; }
 
 // ============================================
-
-// UI FUNCTIONS
-
+// COVER PAGE VALIDATION
 // ============================================
-
-
-
-function initializeUI() {
-
-    // Match index.html: id="scanBtn"
-
-    const scanBtn = document.getElementById('scanBtn');
-
-    if (scanBtn) {
-
-        scanBtn.onclick = scanDocument;
-
-    } else {
-
-        console.error('Scan button (scanBtn) not found!');
-
-    }
-
-    logStep('UI', 'User interface initialized');
-
-}
-
-
-
-function setButtonState(enabled) {
-
-    const btn = document.getElementById('scanBtn');
-
-    if (btn) {
-
-        btn.disabled = !enabled;
-
-        // Button has SVG + span structure in index.html
-
-        const textSpan = btn.querySelector('span');
-
-        if (textSpan) {
-
-            textSpan.textContent = enabled ? 'DÖKÜMAN TARA' : 'ARANIYOR...';
-
-        }
-
-    }
-
-}
-
-
-
-function updateProgress(percent, message) {
-
-    // Match index.html: progressSection, progressFill, progressText
-
-    const progressContainer = document.getElementById('progressSection');
-
-    const progressBar = document.getElementById('progressFill');
-
-    const progressText = document.getElementById('progressText');
-
-
-
-    if (progressContainer) {
-
-        progressContainer.classList.remove('hidden');
-
-    }
-
-    if (progressBar) progressBar.style.width = `${percent}%`;
-
-    if (progressText) progressText.textContent = message;
-
-}
-
-
-
-function hideProgress() {
-
-    const progressContainer = document.getElementById('progressSection');
-
-    if (progressContainer) {
-
-        progressContainer.classList.add('hidden');
-
-    }
-
-}
-
-
-
-function displayResults() {
-
-    // Match index.html: resultsList, summarySection, errorCount, warningCount, successCount
-
-    const resultsContainer = document.getElementById('resultsList');
-
-    const summarySection = document.getElementById('summarySection');
-
-    const errorCountEl = document.getElementById('errorCount');
-
-    const warningCountEl = document.getElementById('warningCount');
-
-    const successCountEl = document.getElementById('successCount');
-
-
-
-    if (!resultsContainer) return;
-
-
-
-    if (validationResults.length === 0) {
-
-        resultsContainer.innerHTML = '<div class="empty-state"><p>✅ Hiçbir hata bulunamadı.</p></div>';
-
-        if (summarySection) summarySection.classList.add('hidden');
-
-        return;
-
-    }
-
-
-
-    // Show summary section
-
-    if (summarySection) summarySection.classList.remove('hidden');
-
-
-
-    let html = '';
-
-    const errors = validationResults.filter(r => r.type === 'error');
-
-    const warnings = validationResults.filter(r => r.type === 'warning');
-
-    const successes = validationResults.filter(r => r.type === 'success');
-
-
-
-    // Update stat cards
-
-    if (errorCountEl) errorCountEl.textContent = errors.length;
-
-    if (warningCountEl) warningCountEl.textContent = warnings.length;
-
-    if (successCountEl) successCountEl.textContent = successes.length;
-
-
-
-    // Errors first
-
-    for (const result of errors) {
-
-        html += createResultItem(result, 'error');
-
-    }
-
-    // Then warnings
-
-    for (const result of warnings) {
-
-        html += createResultItem(result, 'warning');
-
-    }
-
-    // Then successes
-
-    for (const result of successes) {
-
-        html += createResultItem(result, 'success');
-
-    }
-
-
-
-    resultsContainer.innerHTML = html;
-
-}
-
-
-
-function createResultItem(result, type) {
-
-    // Extract paragraph number from location for navigation
-
-    const paraMatch = result.location ? result.location.match(/Paragraf\s*(\d+)/i) : null;
-
-    const paraIndex = paraMatch ? parseInt(paraMatch[1]) - 1 : null;
-
-
-
-    const showButton = paraIndex !== null
-
-        ? `<button class="show-error-btn" onclick="goToError(${paraIndex})">GÖSTER</button>`
-
-        : '';
-
-
-
-    return `
-
-<div class="result-item ${type}">
-
-<div class="result-header">
-
-<span class="result-title">${result.title}</span>
-
-${showButton}
-
-</div>
-
-<div class="result-description">${result.description}</div>
-
-<div class="result-location">${result.location || ''}</div>
-
-</div>
-
-`;
-
-}
-
-
-
-// ============================================
-
-// NAVIGATE TO ERROR (Hataya Git)
-
-// ============================================
-
-
-
-async function goToError(paragraphIndex) {
-
-    try {
-
-        await Word.run(async (context) => {
-
-            const paragraphs = context.document.body.paragraphs;
-
-            paragraphs.load('items');
-
-            await context.sync();
-
-
-
-            if (paragraphIndex >= 0 && paragraphIndex < paragraphs.items.length) {
-
-                const para = paragraphs.items[paragraphIndex];
-
-                para.select();
-
-                await context.sync();
-
-                logStep('NAVIGATE', `Navigated to paragraph ${paragraphIndex + 1}`);
-
-            }
-
-        });
-
-    } catch (error) {
-
-        console.error('Navigation error:', error);
-
-    }
-
-}
-
-
-
-// ============================================
-
-// CLEAR HIGHLIGHTS
-
-// ============================================
-
-
-
-async function clearHighlightsAndResults() {
-
-    clearResults();
-
-
-
-    try {
-
-        await Word.run(async (context) => {
-
-            context.document.body.font.highlightColor = null;
-
-            await context.sync();
-
-        });
-
-        displayResults();
-
-        logStep('CLEAR', 'Highlights and results cleared');
-
-    } catch (error) {
-
-        console.error('Clear error:', error);
-
-    }
-
-}
-
-
-
-// ============================================
-
-// SECTION-BASED MARGIN VALIDATION (7cm Rule)
-
-// ============================================
-
-
-
-/**
-
-* Validate section margins using batch loading
-
-* Checks for 7cm top margin on main chapter starts
-
-*/
-
-async function validateSectionMargins(context, sections) {
-
-    const marginErrors = [];
-
-
-
-    try {
-
-        // Batch load all section data
-
-        for (let i = 0; i < sections.items.length; i++) {
-
-            const section = sections.items[i];
-
-
-
-            try {
-
-                const pageSetup = section.getPageSetup();
-
-                pageSetup.load('topMargin, bottomMargin, leftMargin, rightMargin');
-
-
-
-                const body = section.body;
-
-                body.paragraphs.load('items');
-
-            } catch (e) {
-
-                // Mac compatibility - getPageSetup may not be available
-
-                logStep('MARGIN', `Section ${i + 1}: getPageSetup not available`);
-
-            }
-
-        }
-
-
-
-        await context.sync();
-
-
-
-        // Now validate each section
-
-        for (let i = 0; i < sections.items.length; i++) {
-
-            const section = sections.items[i];
-
-
-
-            try {
-
-                const pageSetup = section.getPageSetup();
-
-                const body = section.body;
-
-
-
-                // Get first paragraph to check if it's a main heading
-
-                let firstParaText = '';
-
-                if (body.paragraphs.items && body.paragraphs.items.length > 0) {
-
-                    const firstPara = body.paragraphs.items[0];
-
-                    firstPara.load('text');
-
-                    await context.sync();
-
-                    firstParaText = (firstPara.text || '').trim();
-
-                }
-
-
-
-                // Determine expected top margin
-
-                const isMainChapterStart = isMainHeadingText(firstParaText);
-
-                const expectedTopMargin = isMainChapterStart
-
-                    ? EBYÜ_RULES.MARGIN_TOP_SPECIAL_POINTS
-
-                    : EBYÜ_RULES.MARGIN_POINTS;
-
-
-
-                const tolerance = EBYÜ_RULES.MARGIN_TOLERANCE;
-
-
-
-                // Check top margin
-
-                if (pageSetup.topMargin !== undefined) {
-
-                    if (Math.abs(pageSetup.topMargin - expectedTopMargin) > tolerance) {
-
-                        const expectedCm = isMainChapterStart ? 7 : 3;
-
-                        marginErrors.push({
-
-                            type: 'error',
-
-                            title: `Bölüm ${i + 1}: Üst Kenar Boşluğu`,
-
-                            description: `Üst kenar ${expectedCm} cm olmalı. Mevcut: ${(pageSetup.topMargin / 28.35).toFixed(2)} cm`,
-
-                            location: `Bölüm ${i + 1}`,
-
-                            severity: 'CRITICAL'
-
-                        });
-
-                    }
-
-
-
-                    // Check other margins (should always be 3cm)
-
-                    if (Math.abs(pageSetup.bottomMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
-
-                        marginErrors.push({
-
-                            type: 'error',
-
-                            title: `Bölüm ${i + 1}: Alt Kenar Boşluğu`,
-
-                            description: `Alt kenar 3 cm olmalı. Mevcut: ${(pageSetup.bottomMargin / 28.35).toFixed(2)} cm`,
-
-                            location: `Bölüm ${i + 1}`,
-
-                            severity: 'CRITICAL'
-
-                        });
-
-                    }
-
-
-
-                    if (Math.abs(pageSetup.leftMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
-
-                        marginErrors.push({
-
-                            type: 'error',
-
-                            title: `Bölüm ${i + 1}: Sol Kenar Boşluğu`,
-
-                            description: `Sol kenar 3 cm olmalı. Mevcut: ${(pageSetup.leftMargin / 28.35).toFixed(2)} cm`,
-
-                            location: `Bölüm ${i + 1}`,
-
-                            severity: 'CRITICAL'
-
-                        });
-
-                    }
-
-
-
-                    if (Math.abs(pageSetup.rightMargin - EBYÜ_RULES.MARGIN_POINTS) > tolerance) {
-
-                        marginErrors.push({
-
-                            type: 'error',
-
-                            title: `Bölüm ${i + 1}: Sağ Kenar Boşluğu`,
-
-                            description: `Sağ kenar 3 cm olmalı. Mevcut: ${(pageSetup.rightMargin / 28.35).toFixed(2)} cm`,
-
-                            location: `Bölüm ${i + 1}`,
-
-                            severity: 'CRITICAL'
-
-                        });
-
-                    }
-
-                }
-
-            } catch (sectionError) {
-
-                logStep('MARGIN', `Section ${i + 1} check failed: ${sectionError.message}`);
-
-            }
-
-        }
-
-
-
-        if (marginErrors.length === 0) {
-
-            logStep('MARGIN', 'All section margins validated successfully');
-
-        }
-
-
-
-    } catch (error) {
-
-        logStep('MARGIN', `Margin validation failed: ${error.message}`);
-
-        addResult('warning', 'Kenar Boşlukları (Manuel Kontrol)',
-
-            'Otomatik kontrol başarısız. Lütfen manuel kontrol edin: Tümü 3 cm, ana bölüm başlangıçları 7 cm üst kenar.');
-
-    }
-
-
-
-    return marginErrors;
-
-}
-
-
-
-// ============================================
-
-// PARAGRAPH VALIDATION FUNCTIONS
-
-// ============================================
-
-
-
-function validateMainHeading(paraData, index) {
-
-    const errors = [];
-
-    const { font, alignment, text, isListItem, listString } = paraData;
-
-
-
-    // === NEW: Başlık Numaralandırma (List String) Kontrolü ===
-
-    // Ana başlıklar numaralandırılmalı: "1.", "2.", "3." formatında
-
-    // Not: GİRİŞ, SONUÇ, ÖZET gibi özel başlıklar numaralandırılmaz
-
-    const trimmedText = (text || '').trim();
-
-    const isSpecialHeading = /^(GİRİŞ|SONUÇ|SONUÇ VE ÖNERİLER|TARTIŞMA|KAYNAKÇA|KAYNAKLAR|ÖZET|ABSTRACT|SUMMARY|ÖN\s*SÖZ|İÇİNDEKİLER|KISALTMALAR|TABLOLAR|ŞEKİLLER|GRAFİKLER|SİMGELER|EKLER?)$/i.test(trimmedText);
-
-
-
-    if (!isSpecialHeading) {
-
-        // Check if paragraph is a list item (has automatic numbering)
-
-        if (!isListItem) {
-
-            errors.push({
-
-                type: 'error',
-
-                title: 'Ana Başlık: Numaralandırılmamış',
-
-                description: 'Ana başlık otomatik numaralandırma listesi ile numaralandırılmalı (Örn: "1.", "2."). Word\'de Çok Düzeyli Liste kullanın.',
-
-                paraIndex: index,
-
-                severity: 'CRITICAL'
-
-            });
-
-        } else {
-
-            // Validate listString format: should be like "1.", "2.", "3." etc.
-
-            const mainHeadingPattern = /^\d+\.?$/;
-
-            const cleanListString = (listString || '').trim();
-
-
-
-            if (!cleanListString) {
-
-                errors.push({
-
-                    type: 'error',
-
-                    title: 'Ana Başlık: Numaralandırma Eksik',
-
-                    description: 'Ana başlık için otomatik numara (listString) alınamadı. Word\'de Çok Düzeyli Liste ile "1.", "2." formatında numaralandırın.',
-
-                    paraIndex: index,
-
-                    severity: 'CRITICAL'
-
-                });
-
-            } else if (!mainHeadingPattern.test(cleanListString)) {
-
-                errors.push({
-
-                    type: 'warning',
-
-                    title: 'Ana Başlık: Numaralandırma Formatı',
-
-                    description: `Ana başlık numarası "1.", "2." formatında olmalı. Mevcut: "${cleanListString}"`,
-
-                    paraIndex: index,
-
-                    severity: 'FORMAT'
-
-                });
-
-            }
-
-        }
-
-    }
-
-    // === END NEW ===
-
-
-
-    // Font size: 14pt
-
-    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_HEADING_MAIN) > 0.5) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Ana Başlık: Punto Hatası',
-
-            description: `Ana başlık 14 punto olmalı. Mevcut: ${font.size} pt`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Bold
-
-    if (font.bold !== true) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Ana Başlık: Kalın Yazı',
-
-            description: 'Ana başlık kalın (bold) olmalı.',
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Centered
-
-    if (!isCentered(alignment)) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Ana Başlık: Hizalama',
-
-            description: 'Ana başlık ortalanmış olmalı.',
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Font name
-
-    if (font.name && font.name !== EBYÜ_RULES.FONT_NAME) {
-
-        errors.push({
-
-            type: 'error',
-
-            title: 'Ana Başlık: Yazı Tipi',
-
-            description: `${EBYÜ_RULES.FONT_NAME} olmalı. Mevcut: ${font.name}`,
-
-            paraIndex: index,
-
-            severity: 'CRITICAL'
-
-        });
-
-    }
-
-
-
-    return errors;
-
-}
-
-
-
-function validateSubHeading(paraData, index) {
-
-    const errors = [];
-
-    const { font, alignment, text, isListItem, listString } = paraData;
-
-
-
-    // === NEW: Alt Başlık Numaralandırma (List String) Kontrolü ===
-
-    // Alt başlıklar hiyerarşik numaralandırılmalı: "1.1.", "1.1.2.", "2.3.1." formatında
-
-    // Check if paragraph is a list item (has automatic numbering)
-
-    if (!isListItem) {
-
-        errors.push({
-
-            type: 'error',
-
-            title: 'Alt Başlık: Numaralandırılmamış',
-
-            description: 'Alt başlık otomatik numaralandırma listesi ile numaralandırılmalı (Örn: "1.1.", "2.3.1."). Word\'de Çok Düzeyli Liste kullanın.',
-
-            paraIndex: index,
-
-            severity: 'CRITICAL'
-
-        });
-
-    } else {
-
-        // Validate listString format: should be hierarchical like "1.1.", "1.2.", "1.1.1.", "2.3.1."
-
-        // Pattern: at least two numbers separated by periods, optionally ending with period
-
-        const subHeadingPattern = /^\d+\.\d+(\.\d+)*\.?$/;
-
-        const cleanListString = (listString || '').trim();
-
-
-
-        if (!cleanListString) {
-
-            errors.push({
-
-                type: 'error',
-
-                title: 'Alt Başlık: Numaralandırma Eksik',
-
-                description: 'Alt başlık için otomatik numara (listString) alınamadı. Word\'de Çok Düzeyli Liste ile "1.1.", "1.2." formatında numaralandırın.',
-
-                paraIndex: index,
-
-                severity: 'CRITICAL'
-
-            });
-
-        } else if (!subHeadingPattern.test(cleanListString)) {
-
-            errors.push({
-
-                type: 'warning',
-
-                title: 'Alt Başlık: Numaralandırma Formatı',
-
-                description: `Alt başlık numarası "1.1.", "1.2.", "1.1.1." formatında olmalı. Mevcut: "${cleanListString}"`,
-
-                paraIndex: index,
-
-                severity: 'FORMAT'
-
-            });
-
-        }
-
-    }
-
-    // === END NEW ===
-
-
-
-    // Font size: 12pt
-
-    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_HEADING_SUB) > 0.5) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Alt Başlık: Punto Hatası',
-
-            description: `Alt başlık 12 punto olmalı. Mevcut: ${font.size} pt`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Bold
-
-    if (font.bold !== true) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Alt Başlık: Kalın Yazı',
-
-            description: 'Alt başlık kalın (bold) olmalı.',
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Font name
-
-    if (font.name && font.name !== EBYÜ_RULES.FONT_NAME) {
-
-        errors.push({
-
-            type: 'error',
-
-            title: 'Alt Başlık: Yazı Tipi',
-
-            description: `${EBYÜ_RULES.FONT_NAME} olmalı. Mevcut: ${font.name}`,
-
-            paraIndex: index,
-
-            severity: 'CRITICAL'
-
-        });
-
-    }
-
-
-
-    return errors;
-
-}
-
-
-
-function validateBodyText(paraData, index) {
-
-    const errors = [];
-
-    const { font, firstLineIndent, lineSpacing, spaceBefore, spaceAfter, text } = paraData;
-
-
-
-    // Skip short paragraphs
-
-    if ((text || '').trim().length < EBYÜ_RULES.MIN_BODY_TEXT_LENGTH) {
-
-        return errors;
-
-    }
-
-
-
-    // === DEBUG: Log paragraph spacing values ===
-
-    logStep('BODY_TEXT_DEBUG', `Paragraf ${index + 1}: lineSpacing=${lineSpacing}, spaceBefore=${spaceBefore}, spaceAfter=${spaceAfter}, firstLineIndent=${firstLineIndent}, leftIndent=${paraData.leftIndent}, text="${(text || '').substring(0, 50)}..."`);
-
-    // === END DEBUG ===
-
-
-
-    // === NEW: Manuel Tab/Boşluk Kontrolü ===
-
-    // Check if text starts with Tab character or multiple spaces (manual indentation)
-
-    if (text) {
-
-        // Check for Tab character at the beginning
-
-        if (text.startsWith('\t')) {
-
-            errors.push({
-
-                type: 'warning',
-
-                title: 'UYARI: Manuel Tab Kullanmayın',
-
-                description: 'Girintiyi "Tab" tuşuyla değil, Cetvel veya Paragraf ayarlarından 1.25 cm olarak ayarlayın.',
-
-                paraIndex: index,
-
-                severity: 'FORMAT'
-
-            });
-
-        }
-
-        // Check for multiple spaces at the beginning (2 or more spaces)
-
-        else if (/^\s{2,}/.test(text) && !text.startsWith('\t')) {
-
-            errors.push({
-
-                type: 'warning',
-
-                title: 'UYARI: Manuel Boşluk Kullanmayın',
-
-                description: 'Girintiyi boşluk tuşuyla değil, Cetvel veya Paragraf ayarlarından 1.25 cm olarak ayarlayın.',
-
-                paraIndex: index,
-
-                severity: 'FORMAT'
-
-            });
-
-        }
-
-    }
-
-    // === END NEW ===
-
-
-
-    // Font name
-
-    if (font.name && font.name !== EBYÜ_RULES.FONT_NAME) {
-
-        errors.push({
-
-            type: 'error',
-
-            title: 'Metin: Yazı Tipi',
-
-            description: `${EBYÜ_RULES.FONT_NAME} olmalı. Mevcut: ${font.name}`,
-
-            paraIndex: index,
-
-            severity: 'CRITICAL'
-
-        });
-
-    }
-
-
-
-    // Font size: 12pt
-
-    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_BODY) > 0.5) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Metin: Punto Hatası',
-
-            description: `Metin 12 punto olmalı. Mevcut: ${font.size} pt`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // First line indent: 1.25cm (35.4pt)
-
-    if (firstLineIndent !== undefined && Math.abs(firstLineIndent - EBYÜ_RULES.FIRST_LINE_INDENT_POINTS) > EBYÜ_RULES.INDENT_TOLERANCE) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Metin: İlk Satır Girintisi',
-
-            description: `1.25 cm olmalı. Mevcut: ${(firstLineIndent / 28.35).toFixed(2)} cm`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Line spacing: 1.5 (15-22pt range)
-
-    if (lineSpacing !== undefined && lineSpacing !== null && (lineSpacing < EBYÜ_RULES.LINE_SPACING_1_5_MIN || lineSpacing > EBYÜ_RULES.LINE_SPACING_1_5_MAX)) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Metin: Satır Aralığı',
-
-            description: `1.5 satır aralığı (15-22 pt) olmalı. Mevcut: ${lineSpacing.toFixed(1)} pt`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Paragraph spacing: 6pt before and after
-
-    if (spaceBefore !== undefined && spaceBefore !== null && Math.abs(spaceBefore - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Metin: Paragraf Öncesi',
-
-            description: `6 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} nk`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    if (spaceAfter !== undefined && spaceAfter !== null && Math.abs(spaceAfter - EBYÜ_RULES.SPACING_6NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Metin: Paragraf Sonrası',
-
-            description: `6 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} nk`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // === NEW: Block indent (Sol Girinti) detection ===
-
-    // If the paragraph has significant left indent (not first line indent), it might be improperly formatted
-
-    const leftIndent = paraData.leftIndent;
-
-    if (leftIndent !== undefined && leftIndent !== null && leftIndent >= EBYÜ_RULES.BLOCK_QUOTE_MIN_INDENT) {
-
-        // This looks like a block quote or indented section - check if it's properly styled
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Metin: Blok Girinti Tespit Edildi',
-
-            description: `Bu paragrafta ${(leftIndent / 28.35).toFixed(2)} cm sol girinti var. Blok alıntı ise 11pt/italik olmalı, aksi halde girintiyi kaldırın.`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-    // === END NEW ===
-
-
-
-    return errors;
-
-}
-
-
-
-function validateGhostHeading(paraData, index) {
-
-    const { style, outlineLevel } = paraData;
-
-
-
-    let reason = '';
-
-    if (typeof outlineLevel === 'number' && outlineLevel >= 0 && outlineLevel <= 8) {
-
-        reason = `Taslak düzeyi ${outlineLevel + 1} olarak ayarlanmış`;
-
-    } else if (isHeadingStyle(style)) {
-
-        reason = `"${style}" başlık stili uygulanmış`;
-
-    }
-
-
-
-    return [{
-
-        type: 'error',
-
-        title: 'BOŞ BAŞLIK (Ghost Heading) - KRİTİK!',
-
-        description: `Bu boş satıra ${reason}. İçindekiler tablosunda hatalı boş satır oluşturur! Satırı silin veya "Normal" stiline dönüştürün.`,
-
-        paraIndex: index,
-
-        severity: 'CRITICAL'
-
-    }];
-
-}
-
-
-
-function validateBibliography(paraData, index) {
-
-    const errors = [];
-
-    const { font, leftIndent, firstLineIndent, lineSpacing, spaceBefore, spaceAfter } = paraData;
-
-
-
-    // Font name
-
-    if (font.name && font.name !== EBYÜ_RULES.FONT_NAME) {
-
-        errors.push({
-
-            type: 'error',
-
-            title: 'Kaynakça: Yazı Tipi',
-
-            description: `${EBYÜ_RULES.FONT_NAME} olmalı.`,
-
-            paraIndex: index,
-
-            severity: 'CRITICAL'
-
-        });
-
-    }
-
-
-
-    // 12pt
-
-    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_BODY) > 0.5) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Kaynakça: Punto',
-
-            description: `12 punto olmalı. Mevcut: ${font.size} pt`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Hanging indent (1cm = 28.35pt)
-
-    const hangingIndent = leftIndent - firstLineIndent;
-
-    if (Math.abs(hangingIndent - EBYÜ_RULES.BIBLIOGRAPHY_HANGING_INDENT_POINTS) > EBYÜ_RULES.INDENT_TOLERANCE) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Kaynakça: Asılı Girinti',
-
-            description: `1 cm asılı girinti olmalı.`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Single line spacing
-
-    if (lineSpacing !== undefined && (lineSpacing < EBYÜ_RULES.LINE_SPACING_SINGLE_MIN || lineSpacing > EBYÜ_RULES.LINE_SPACING_SINGLE_MAX)) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Kaynakça: Satır Aralığı',
-
-            description: `Tek satır olmalı. Mevcut: ${lineSpacing.toFixed(1)} pt`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // 3pt paragraph spacing
-
-    if (spaceBefore !== undefined && Math.abs(spaceBefore - EBYÜ_RULES.SPACING_3NK) > EBYÜ_RULES.SPACING_TOLERANCE) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Kaynakça: Paragraf Öncesi',
-
-            description: `3 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} nk`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    return errors;
-
-}
-
-
-
-function validateBlockQuote(paraData, index) {
-
-    const errors = [];
-
-    const { font, leftIndent, rightIndent, lineSpacing } = paraData;
-
-
-
-    // 11pt
-
-    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_BLOCK_QUOTE) > 0.5) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Blok Alıntı: Punto',
-
-            description: `11 punto olmalı. Mevcut: ${font.size} pt`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Italic
-
-    if (font.italic !== true) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Blok Alıntı: İtalik',
-
-            description: 'Blok alıntı italik olmalı.',
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // 1.25cm left and right indent
-
-    if (leftIndent !== undefined && Math.abs(leftIndent - EBYÜ_RULES.BLOCK_QUOTE_INDENT_POINTS) > EBYÜ_RULES.INDENT_TOLERANCE) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Blok Alıntı: Sol Girinti',
-
-            description: `1.25 cm olmalı. Mevcut: ${(leftIndent / 28.35).toFixed(2)} cm`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    if (rightIndent !== undefined && Math.abs(rightIndent - EBYÜ_RULES.BLOCK_QUOTE_INDENT_POINTS) > EBYÜ_RULES.INDENT_TOLERANCE) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Blok Alıntı: Sağ Girinti',
-
-            description: `1.25 cm olmalı. Mevcut: ${(rightIndent / 28.35).toFixed(2)} cm`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    return errors;
-
-}
-
-
-
-function validateCaption(paraData, index) {
-
-    const errors = [];
-
-    const { font, alignment, text } = paraData;
-
-
-
-    // 12pt for caption title
-
-    if (font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_CAPTION_TITLE) > 0.5) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Başlık: Punto',
-
-            description: `Tablo/Şekil başlığı 12 punto olmalı. Mevcut: ${font.size} pt`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Centered
-
-    if (!isCentered(alignment)) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Başlık: Hizalama',
-
-            description: 'Tablo/Şekil başlığı ortalanmış olmalı.',
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Caption spacing: 0nk before and after
-
-    if (paraData.spaceBefore !== undefined && paraData.spaceBefore > EBYÜ_RULES.SPACING_TOLERANCE) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Tablo/Şekil Başlığı: Paragraf Öncesi',
-
-            description: `Şekil/Tablo başlıklarında 0 nk olmalı. Mevcut: ${paraData.spaceBefore.toFixed(1)} nk`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    if (paraData.spaceAfter !== undefined && paraData.spaceAfter > EBYÜ_RULES.SPACING_TOLERANCE) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Tablo/Şekil Başlığı: Paragraf Sonrası',
-
-            description: `Şekil/Tablo başlıklarında 0 nk olmalı. Mevcut: ${paraData.spaceAfter.toFixed(1)} nk`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    return errors;
-
-}
-
-
-
-// ============================================
-
-// COVER PAGE VALIDATION (Kapak Sayfası - 16pt, 0nk)
-
-// ============================================
-
-
-
-function validateCoverPage(paraData, index) {
-
-    const errors = [];
-
-    const { font, alignment, spaceBefore, spaceAfter, text } = paraData;
-
-    const trimmed = (text || '').trim();
-
-
-
-    // Skip empty paragraphs
-
-    if (trimmed.length === 0) return errors;
-
-
-
-    // Cover title should be 16pt (main titles on cover)
-
-    const isMainCoverTitle = /^(T\.?C\.?|ERZİNCAN|ÜNİVERSİTESİ|ENSTİTÜSÜ|TEZİ)$/i.test(trimmed) ||
-
-        trimmed.length > 20; // Thesis title
-
-
-
-    if (isMainCoverTitle && font.size && Math.abs(font.size - EBYÜ_RULES.FONT_SIZE_COVER_TITLE) > 1) {
-
-        errors.push({
-
-            type: 'error',
-
-            title: 'KAPAK: Punto Hatası',
-
-            description: `Kapak başlıkları 16 punto olmalı. Mevcut: ${font.size} pt`,
-
-            paraIndex: index,
-
-            severity: 'CRITICAL'
-
-        });
-
-    }
-
-
-
-    // Cover should be centered
-
-    if (!isCentered(alignment)) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'KAPAK: Hizalama',
-
-            description: 'Kapak öğeleri ortalanmış olmalı.',
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    // Cover spacing should be 0nk
-
-    if (spaceBefore !== undefined && spaceBefore > EBYÜ_RULES.SPACING_TOLERANCE) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'KAPAK: Paragraf Öncesi Boşluk',
-
-            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} nk`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    if (spaceAfter !== undefined && spaceAfter > EBYÜ_RULES.SPACING_TOLERANCE) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'KAPAK: Paragraf Sonrası Boşluk',
-
-            description: `Kapakta 0 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} nk`,
-
-            paraIndex: index,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
+function validateCover(pd, idx, segType) {
+    const errs = [];
+    const text = (pd.text || '').trim();
+    if (text.length === 0) return errs;
+
+    const { font, alignment } = pd;
+    const label = segType === SEG.OUTER_COVER ? 'DIŞ KAPAK' : 'İÇ KAPAK';
 
     // Font must be Times New Roman
-
-    if (font.name && font.name !== EBYÜ_RULES.FONT_NAME) {
-
-        errors.push({
-
-            type: 'error',
-
-            title: 'KAPAK: Yazı Tipi',
-
-            description: `${EBYÜ_RULES.FONT_NAME} olmalı. Mevcut: ${font.name}`,
-
-            paraIndex: index,
-
-            severity: 'CRITICAL'
-
-        });
-
+    if (font.name && font.name !== RULES.FONT_NAME) {
+        errs.push({ type: 'error', title: `${label}: Yazı Tipi`, description: `${RULES.FONT_NAME} olmalı. Mevcut: ${font.name}`, paraIndex: idx, severity: 'CRITICAL' });
     }
 
+    // Determine expected font size based on content
+    const isTCLine = /^T\.?C\.?$/i.test(text);
+    const isUniLine = /^ERZİNCAN/i.test(text) || /^ÜNİVERSİTESİ$/i.test(text);
+    const isInstLine = /ENSTİTÜSÜ$/i.test(text);
+    const isABDLine = /ANA\s*BİLİM\s*DALI/i.test(text);
+    const isThesisType = /^(YÜKSEK\s*LİSANS|DOKTORA)/i.test(text);
+    const isSupportLine = /desteklenmiştir/i.test(text);
 
+    let expectedSize = RULES.FONT_SIZE_COVER; // 16pt default
+    if (isABDLine || isThesisType) expectedSize = RULES.FONT_SIZE_COVER_ABD; // 14pt
+    if (isSupportLine) expectedSize = RULES.FONT_SIZE_COVER_SUPPORT; // 12pt
+    if (segType === SEG.INNER_COVER && isSupportLine) expectedSize = 12;
 
-    return errors;
+    if (font.size && Math.abs(font.size - expectedSize) > 1) {
+        errs.push({ type: 'error', title: `${label}: Punto`, description: `${expectedSize} punto olmalı. Mevcut: ${font.size} pt`, paraIndex: idx, severity: 'CRITICAL' });
+    }
 
-}
+    // Must be centered
+    if (!isCentered(alignment)) {
+        errs.push({ type: 'warning', title: `${label}: Hizalama`, description: 'Kapak öğeleri ortalanmış olmalı.', paraIndex: idx, severity: 'FORMAT' });
+    }
 
-
-
-// ============================================
-
-// TABLE ALIGNMENT VALIDATION (Tablo Hizalama)
-
-// ============================================
-
-
-
-async function validateTables(context) {
-
-    const errors = [];
-
-
-
-    try {
-
-        const tables = context.document.body.tables;
-
-        tables.load('items');
-
-        await context.sync();
-
-
-
-        for (let i = 0; i < tables.items.length; i++) {
-
-            const table = tables.items[i];
-
-            table.load(['alignment', 'font/size', 'font/name']);
-
-            await context.sync();
-
-
-
-            // Check alignment - must be centered
-
-            if (table.alignment && !isCentered(table.alignment) &&
-
-                table.alignment !== 'Mixed' &&
-
-                table.alignment !== 'Unknown') {
-
-
-
-                errors.push({
-
-                    type: 'warning',
-
-                    title: `Tablo ${i + 1}: Hizalama Hatası`,
-
-                    description: `Tablolar ortalanmış olmalı. Mevcut: ${table.alignment}`,
-
-                    severity: 'FORMAT',
-
-                    tableIndex: i
-
-                });
-
-
-
-                // Highlight table
-
-                table.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
-
-            }
-
-
-
-            // Check font size - table content should be 11pt
-
-            if (table.font.size && Math.abs(table.font.size - EBYÜ_RULES.TABLE_CONTENT_SIZE) > 0.5) {
-
-                errors.push({
-
-                    type: 'warning',
-
-                    title: `Tablo ${i + 1}: Punto Hatası`,
-
-                    description: `Tablo içeriği 11 punto olmalı. Mevcut: ${table.font.size} pt`,
-
-                    severity: 'FORMAT',
-
-                    tableIndex: i
-
-                });
-
-            }
-
+    // Thesis title should be all uppercase
+    if (text.length > 20 && !isTCLine && !isUniLine && !isInstLine && !isABDLine && !isThesisType) {
+        if (!isAllUpperCase(text)) {
+            errs.push({ type: 'warning', title: `${label}: Tez Adı`, description: 'Tez adı tamamı büyük harflerle yazılmalı.', paraIndex: idx, severity: 'FORMAT' });
         }
-
-
-
-        logStep('TABLES', `Validated ${tables.items.length} tables, found ${errors.length} errors`);
-
-    } catch (error) {
-
-        logStep('TABLES', `Table validation error: ${error.message}`);
-
     }
 
-
-
-    return errors;
-
+    return errs;
 }
 
+// ============================================
+// FRONT MATTER VALIDATION
+// ============================================
+function validateFrontMatter(pd, idx, segment) {
+    const errs = [];
+    const text = (pd.text || '').trim();
+    if (text.length === 0) return errs;
+    const { font } = pd;
 
+    if (font.name && font.name !== RULES.FONT_NAME) {
+        errs.push({ type: 'error', title: `${segment.title}: Yazı Tipi`, description: `${RULES.FONT_NAME} olmalı. Mevcut: ${font.name}`, paraIndex: idx, severity: 'CRITICAL' });
+    }
+
+    // Section title should be bold and uppercase
+    if (idx === segment.startIdx) {
+        if (font.bold !== true) {
+            errs.push({ type: 'warning', title: `${segment.title}: Başlık`, description: 'Başlık koyu (bold) olmalı.', paraIndex: idx, severity: 'FORMAT' });
+        }
+        if (!isAllUpperCase(text)) {
+            errs.push({ type: 'warning', title: `${segment.title}: Başlık`, description: 'Başlık büyük harflerle yazılmalı.', paraIndex: idx, severity: 'FORMAT' });
+        }
+    }
+
+    return errs;
+}
 
 // ============================================
+// CHAPTER HEADING VALIDATION (14pt, bold, centered, UPPERCASE)
+// ============================================
+function validateChapterHeading(pd, idx) {
+    const errs = [];
+    const { font, alignment, text } = pd;
+    const trimmed = (text || '').trim();
 
-// IMAGE ALIGNMENT VALIDATION (Resim Hizalama)
+    if (font.size && Math.abs(font.size - RULES.FONT_SIZE_HEADING_MAIN) > 0.5) {
+        errs.push({ type: 'warning', title: 'Bölüm Başlığı: Punto', description: `14 punto olmalı. Mevcut: ${font.size} pt`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (font.bold !== true) {
+        errs.push({ type: 'warning', title: 'Bölüm Başlığı: Kalın Yazı', description: 'Bölüm başlıkları koyu (bold) olmalı.', paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (!isCentered(alignment)) {
+        errs.push({ type: 'warning', title: 'Bölüm Başlığı: Hizalama', description: 'Bölüm başlıkları ortalanmış olmalı.', paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (font.name && font.name !== RULES.FONT_NAME) {
+        errs.push({ type: 'error', title: 'Bölüm Başlığı: Yazı Tipi', description: `${RULES.FONT_NAME} olmalı. Mevcut: ${font.name}`, paraIndex: idx, severity: 'CRITICAL' });
+    }
+    // Must be uppercase
+    if (!isAllUpperCase(trimmed) && matchAny(trimmed, PAT.CHAPTER)) {
+        errs.push({ type: 'warning', title: 'Bölüm Başlığı: Büyük Harf', description: 'Bölüm başlıkları tamamı büyük harflerle yazılmalı.', paraIndex: idx, severity: 'FORMAT' });
+    }
+
+    return errs;
+}
 
 // ============================================
+// SUB-HEADING VALIDATION (12pt, bold, 1.25cm Tab indent)
+// ============================================
+function validateSubHeading(pd, idx) {
+    const errs = [];
+    const { font, firstLineIndent } = pd;
 
+    if (font.size && Math.abs(font.size - RULES.FONT_SIZE_HEADING_SUB) > 0.5) {
+        errs.push({ type: 'warning', title: 'Alt Başlık: Punto', description: `12 punto olmalı. Mevcut: ${font.size} pt`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (font.bold !== true) {
+        errs.push({ type: 'warning', title: 'Alt Başlık: Kalın Yazı', description: 'Alt başlıklar koyu (bold) olmalı.', paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (font.name && font.name !== RULES.FONT_NAME) {
+        errs.push({ type: 'error', title: 'Alt Başlık: Yazı Tipi', description: `${RULES.FONT_NAME} olmalı. Mevcut: ${font.name}`, paraIndex: idx, severity: 'CRITICAL' });
+    }
+    // 1.25cm indent (same as paragraph indent)
+    if (firstLineIndent !== undefined && Math.abs(firstLineIndent - RULES.FIRST_LINE_INDENT_PT) > RULES.INDENT_TOLERANCE) {
+        errs.push({ type: 'warning', title: 'Alt Başlık: Girinti', description: `1.25 cm girinti olmalı. Mevcut: ${(firstLineIndent / 28.35).toFixed(2)} cm`, paraIndex: idx, severity: 'FORMAT' });
+    }
 
+    return errs;
+}
+
+// ============================================
+// BODY TEXT VALIDATION
+// ============================================
+function validateBodyText(pd, idx) {
+    const errs = [];
+    const { font, firstLineIndent, lineSpacing, spaceBefore, spaceAfter, text, leftIndent, isListItem } = pd;
+    const trimmed = (text || '').trim();
+
+    if (trimmed.length < RULES.MIN_BODY_LENGTH) return errs;
+    if (isListItem) return errs; // Skip list items
+
+    if (font.name && font.name !== RULES.FONT_NAME) {
+        errs.push({ type: 'error', title: 'Metin: Yazı Tipi', description: `${RULES.FONT_NAME} olmalı. Mevcut: ${font.name}`, paraIndex: idx, severity: 'CRITICAL' });
+    }
+    if (font.size && Math.abs(font.size - RULES.FONT_SIZE_BODY) > 0.5) {
+        errs.push({ type: 'warning', title: 'Metin: Punto', description: `12 punto olmalı. Mevcut: ${font.size} pt`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    // First line indent 1.25cm
+    if (firstLineIndent !== undefined && Math.abs(firstLineIndent - RULES.FIRST_LINE_INDENT_PT) > RULES.INDENT_TOLERANCE) {
+        errs.push({ type: 'warning', title: 'Metin: İlk Satır Girintisi', description: `1.25 cm olmalı. Mevcut: ${(firstLineIndent / 28.35).toFixed(2)} cm`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    // Line spacing 1.5
+    if (lineSpacing !== undefined && lineSpacing !== null && (lineSpacing < RULES.LINE_SPACING_1_5_MIN || lineSpacing > RULES.LINE_SPACING_1_5_MAX)) {
+        errs.push({ type: 'warning', title: 'Metin: Satır Aralığı', description: `1.5 satır aralığı olmalı. Mevcut: ${lineSpacing.toFixed(1)} pt`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    // Paragraph spacing 6nk before/after
+    if (spaceBefore !== undefined && spaceBefore !== null && Math.abs(spaceBefore - RULES.SPACING_6NK) > RULES.SPACING_TOLERANCE) {
+        errs.push({ type: 'warning', title: 'Metin: Paragraf Öncesi', description: `6 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} nk`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (spaceAfter !== undefined && spaceAfter !== null && Math.abs(spaceAfter - RULES.SPACING_6NK) > RULES.SPACING_TOLERANCE) {
+        errs.push({ type: 'warning', title: 'Metin: Paragraf Sonrası', description: `6 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} nk`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    // Manual tab/space warning
+    if (text && text.startsWith('\t')) {
+        errs.push({ type: 'warning', title: 'Metin: Manuel Tab', description: 'Girintiyi Tab tuşuyla değil Paragraf ayarlarından 1.25 cm olarak ayarlayın.', paraIndex: idx, severity: 'FORMAT' });
+    }
+
+    return errs;
+}
+// ============================================
+// BLOCK QUOTE VALIDATION (11pt, italic, 1.25cm indent both sides)
+// ============================================
+function validateBlockQuote(pd, idx) {
+    const errs = [];
+    const { font, leftIndent, rightIndent } = pd;
+
+    if (font.size && Math.abs(font.size - RULES.FONT_SIZE_BLOCK_QUOTE) > 0.5) {
+        errs.push({ type: 'warning', title: 'Blok Alıntı: Punto', description: `11 punto olmalı. Mevcut: ${font.size} pt`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (font.italic !== true) {
+        errs.push({ type: 'warning', title: 'Blok Alıntı: İtalik', description: 'Blok alıntı italik olmalı.', paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (leftIndent !== undefined && Math.abs(leftIndent - RULES.BLOCK_QUOTE_INDENT_PT) > RULES.INDENT_TOLERANCE) {
+        errs.push({ type: 'warning', title: 'Blok Alıntı: Sol Girinti', description: `1.25 cm olmalı. Mevcut: ${(leftIndent / 28.35).toFixed(2)} cm`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (rightIndent !== undefined && Math.abs(rightIndent - RULES.BLOCK_QUOTE_INDENT_PT) > RULES.INDENT_TOLERANCE) {
+        errs.push({ type: 'warning', title: 'Blok Alıntı: Sağ Girinti', description: `1.25 cm olmalı. Mevcut: ${(rightIndent / 28.35).toFixed(2)} cm`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    return errs;
+}
+
+// ============================================
+// BIBLIOGRAPHY VALIDATION (12pt, hanging 1cm, single spacing, 3nk)
+// ============================================
+function validateBibliography(pd, idx) {
+    const errs = [];
+    const { font, leftIndent, firstLineIndent, lineSpacing, spaceBefore, spaceAfter } = pd;
+
+    if (font.name && font.name !== RULES.FONT_NAME) {
+        errs.push({ type: 'error', title: 'Kaynakça: Yazı Tipi', description: `${RULES.FONT_NAME} olmalı.`, paraIndex: idx, severity: 'CRITICAL' });
+    }
+    if (font.size && Math.abs(font.size - RULES.FONT_SIZE_BODY) > 0.5) {
+        errs.push({ type: 'warning', title: 'Kaynakça: Punto', description: `12 punto olmalı. Mevcut: ${font.size} pt`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    // Hanging indent 1cm
+    if (leftIndent !== undefined && firstLineIndent !== undefined) {
+        const hanging = leftIndent - firstLineIndent;
+        if (Math.abs(hanging - RULES.BIBLIO_HANGING_INDENT_PT) > RULES.INDENT_TOLERANCE) {
+            errs.push({ type: 'warning', title: 'Kaynakça: Asılı Girinti', description: '1 cm asılı girinti olmalı.', paraIndex: idx, severity: 'FORMAT' });
+        }
+    }
+    // Single spacing
+    if (lineSpacing !== undefined && (lineSpacing < RULES.LINE_SPACING_SINGLE_MIN || lineSpacing > RULES.LINE_SPACING_SINGLE_MAX)) {
+        errs.push({ type: 'warning', title: 'Kaynakça: Satır Aralığı', description: `Tek satır olmalı. Mevcut: ${lineSpacing.toFixed(1)} pt`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    // 3nk before
+    if (spaceBefore !== undefined && Math.abs(spaceBefore - RULES.SPACING_3NK) > RULES.SPACING_TOLERANCE) {
+        errs.push({ type: 'warning', title: 'Kaynakça: Paragraf Öncesi', description: `3 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} nk`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    // 3nk after
+    if (spaceAfter !== undefined && Math.abs(spaceAfter - RULES.SPACING_3NK) > RULES.SPACING_TOLERANCE) {
+        errs.push({ type: 'warning', title: 'Kaynakça: Paragraf Sonrası', description: `3 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} nk`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    return errs;
+}
+
+// ============================================
+// CAPTION VALIDATION (12pt title, centered, bold numbering)
+// ============================================
+function validateCaption(pd, idx) {
+    const errs = [];
+    const { font, alignment, spaceBefore, spaceAfter } = pd;
+
+    if (font.size && Math.abs(font.size - RULES.FONT_SIZE_CAPTION_TITLE) > 0.5) {
+        errs.push({ type: 'warning', title: 'Tablo/Şekil Başlığı: Punto', description: `12 punto olmalı. Mevcut: ${font.size} pt`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (!isCentered(alignment)) {
+        errs.push({ type: 'warning', title: 'Tablo/Şekil Başlığı: Hizalama', description: 'Ortalanmış olmalı.', paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (spaceBefore !== undefined && spaceBefore > RULES.SPACING_TOLERANCE) {
+        errs.push({ type: 'warning', title: 'Tablo/Şekil Başlığı: Öncesi', description: `0 nk olmalı. Mevcut: ${spaceBefore.toFixed(1)} nk`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    if (spaceAfter !== undefined && spaceAfter > RULES.SPACING_TOLERANCE) {
+        errs.push({ type: 'warning', title: 'Tablo/Şekil Başlığı: Sonrası', description: `0 nk olmalı. Mevcut: ${spaceAfter.toFixed(1)} nk`, paraIndex: idx, severity: 'FORMAT' });
+    }
+    return errs;
+}
+
+// ============================================
+// GHOST HEADING VALIDATION
+// ============================================
+function validateGhostHeading(pd, idx) {
+    const { style, outlineLevel } = pd;
+    let reason = '';
+    if (typeof outlineLevel === 'number' && outlineLevel >= 0 && outlineLevel <= 8) {
+        reason = `Taslak düzeyi ${outlineLevel + 1} olarak ayarlanmış`;
+    } else if (isHeadingStyle(style)) {
+        reason = `"${style}" başlık stili uygulanmış`;
+    }
+    return [{ type: 'error', title: 'BOŞ BAŞLIK (Ghost Heading)', description: `Bu boş satıra ${reason}. İçindekiler tablosunda hatalı boş satır oluşturur! Silin veya "Normal" stiline dönüştürün.`, paraIndex: idx, severity: 'CRITICAL' }];
+}
+
+// ============================================
+// ABSTRACT/ÖZET VALIDATION (200-250 words, single page, 3-5 keywords)
+// ============================================
+function validateAbstractSection(paragraphDataList, startIdx, isEnglish) {
+    const errs = [];
+    const label = isEnglish ? 'ABSTRACT' : 'ÖZET';
+    const keywordPat = isEnglish ? /keywords/i : /anahtar\s*kelime/i;
+
+    let abstractWords = 0;
+    let keywordLine = '';
+    let keywordFound = false;
+    let paragraphCount = 0;
+
+    // Collect abstract text (skip heading line, stop at keywords)
+    for (let i = startIdx + 1; i < paragraphDataList.length && i < startIdx + 40; i++) {
+        const text = (paragraphDataList[i].text || '').trim();
+        if (text.length === 0) continue;
+
+        // Stop at keywords
+        if (keywordPat.test(text)) {
+            keywordFound = true;
+            keywordLine = text;
+            break;
+        }
+        // Stop at next major section
+        if (/^(ABSTRACT|ÖZET|İÇİNDEKİLER|GİRİŞ|BİRİNCİ\s*BÖLÜM)$/i.test(text)) break;
+        // Stop if we detect TOC entry
+        if (PAT.TOC_DOTS.test(text)) break;
+
+        // Skip metadata lines (university name, thesis info etc)
+        if (/^(Erzincan|Sosyal|Doktora|Yüksek|Danışman|Supervisor)/i.test(text)) continue;
+        if (/Üniversitesi|University|Enstitüsü|Institute/i.test(text)) continue;
+
+        // Count actual abstract content words
+        if (text.length > 10) {
+            abstractWords += wordCount(text);
+            paragraphCount++;
+        }
+    }
+
+    // Word count check: 200-250
+    if (abstractWords < RULES.ABSTRACT_MIN_WORDS) {
+        errs.push({ type: 'warning', title: `${label}: Kelime Sayısı Az`, description: `En az 200 kelime olmalı. Mevcut: ${abstractWords} kelime`, severity: 'FORMAT' });
+    } else if (abstractWords > RULES.ABSTRACT_MAX_WORDS) {
+        errs.push({ type: 'warning', title: `${label}: Kelime Sayısı Fazla`, description: `En fazla 250 kelime olmalı. Mevcut: ${abstractWords} kelime`, severity: 'FORMAT' });
+    } else {
+        errs.push({ type: 'success', title: `${label}: Kelime Sayısı ✓`, description: `${abstractWords} kelime (200-250 arası).`, severity: 'FORMAT' });
+    }
+
+    // Keywords check
+    if (keywordFound && keywordLine) {
+        const kwPart = keywordLine.replace(/^(Anahtar\s*Kelimeler|Keywords)\s*:\s*/i, '');
+        const keywords = kwPart.split(/[,;]/).map(k => k.trim()).filter(k => k.length > 0);
+        if (keywords.length < RULES.ABSTRACT_MIN_KEYWORDS || keywords.length > RULES.ABSTRACT_MAX_KEYWORDS) {
+            errs.push({ type: 'warning', title: `${label}: Anahtar Kelime Sayısı`, description: `3-5 anahtar kelime olmalı. Mevcut: ${keywords.length}`, severity: 'FORMAT' });
+        }
+    } else {
+        errs.push({ type: 'error', title: `${label}: Anahtar Kelimeler Eksik`, description: `"${isEnglish ? 'Keywords' : 'Anahtar Kelimeler'}" satırı bulunamadı.`, severity: 'CRITICAL' });
+    }
+
+    // Check font italic (should NOT be italic in abstract - YÖK rule)
+    const headingPd = paragraphDataList[startIdx];
+    if (headingPd && headingPd.font.italic === true) {
+        errs.push({ type: 'warning', title: `${label}: İtalik Kullanılmamalı`, description: 'Özet sayfasında italik yazı tipi kullanılmamalıdır (YÖK kuralı).', severity: 'FORMAT' });
+    }
+
+    return errs;
+}
+// ============================================
+// TABLE/IMAGE/PAGE NUMBER VALIDATION
+// ============================================
+async function validateTables(context) {
+    const errs = [];
+    try {
+        const tables = context.document.body.tables;
+        tables.load('items');
+        await context.sync();
+        for (let i = 0; i < tables.items.length; i++) {
+            const table = tables.items[i];
+            table.load(['alignment', 'font/size', 'font/name']);
+            await context.sync();
+            if (table.alignment && !isCentered(table.alignment) && table.alignment !== 'Mixed' && table.alignment !== 'Unknown') {
+                errs.push({ type: 'warning', title: `Tablo ${i + 1}: Hizalama`, description: `Tablolar ortalanmış olmalı. Mevcut: ${table.alignment}`, severity: 'FORMAT' });
+                table.font.highlightColor = HIGHLIGHT.FORMAT;
+            }
+            if (table.font.size && Math.abs(table.font.size - RULES.FONT_SIZE_TABLE_CONTENT) > 0.5) {
+                errs.push({ type: 'warning', title: `Tablo ${i + 1}: Punto`, description: `Tablo içeriği 11 punto olmalı. Mevcut: ${table.font.size} pt`, severity: 'FORMAT' });
+            }
+        }
+    } catch (e) { logStep('TABLES', `Error: ${e.message}`); }
+    return errs;
+}
 
 async function validateImages(context) {
-
-    const errors = [];
-
-
-
+    const errs = [];
     try {
-
-        const pictures = context.document.body.inlinePictures;
-
-        pictures.load('items');
-
+        const pics = context.document.body.inlinePictures;
+        pics.load('items');
         await context.sync();
-
-
-
-        for (let i = 0; i < pictures.items.length; i++) {
-
-            const pic = pictures.items[i];
-
+        for (let i = 0; i < pics.items.length; i++) {
+            const pic = pics.items[i];
             pic.paragraph.load('alignment');
-
             await context.sync();
-
-
-
-            const alignment = pic.paragraph.alignment;
-
-
-
-            // Images should be centered
-
-            if (alignment && !isCentered(alignment)) {
-
-
-
-                errors.push({
-
-                    type: 'warning',
-
-                    title: `Resim ${i + 1}: Hizalama Hatası`,
-
-                    description: `Resimler ortalanmış olmalı. Mevcut: ${alignment}`,
-
-                    severity: 'FORMAT',
-
-                    pictureIndex: i
-
-                });
-
-
-
-                // Highlight the paragraph containing image
-
-                pic.paragraph.font.highlightColor = HIGHLIGHT_COLORS.FORMAT;
-
+            if (pic.paragraph.alignment && !isCentered(pic.paragraph.alignment)) {
+                errs.push({ type: 'warning', title: `Resim ${i + 1}: Hizalama`, description: `Resimler ortalanmış olmalı.`, severity: 'FORMAT' });
+                pic.paragraph.font.highlightColor = HIGHLIGHT.FORMAT;
             }
-
         }
-
-
-
-        logStep('IMAGES', `Validated ${pictures.items.length} images, found ${errors.length} errors`);
-
-    } catch (error) {
-
-        logStep('IMAGES', `Image validation error: ${error.message}`);
-
-    }
-
-
-
-    return errors;
-
+    } catch (e) { logStep('IMAGES', `Error: ${e.message}`); }
+    return errs;
 }
-
-
-
-// ============================================
-
-// PAGE NUMBER VALIDATION (Sayfa No Kontrolü)
-
-// ============================================
-
-
 
 async function validatePageNumbers(context, sections) {
-
-    const errors = [];
-
-
-
+    const errs = [];
     try {
-
         for (let i = 0; i < sections.items.length; i++) {
-
-            const section = sections.items[i];
-
-
-
             try {
-
-                section.pageSetup.load('footerDistance');
-
+                sections.items[i].pageSetup.load('footerDistance');
                 await context.sync();
-
-
-
-                const footerDistance = section.pageSetup.footerDistance;
-
-
-
-                // Footer distance should be 1.25 cm (35.4 pt)
-
-                if (footerDistance !== undefined &&
-
-                    Math.abs(footerDistance - EBYÜ_RULES.PAGE_NUMBER_FOOTER_DISTANCE_POINTS) > EBYÜ_RULES.MARGIN_TOLERANCE) {
-
-
-
-                    errors.push({
-
-                        type: 'warning',
-
-                        title: `Bölüm ${i + 1}: Sayfa No Konumu`,
-
-                        description: `Sayfa numarası alt kenardan 1.25 cm yukarıda olmalı. Mevcut: ${(footerDistance / 28.35).toFixed(2)} cm`,
-
-                        location: `Bölüm ${i + 1}`,
-
-                        severity: 'FORMAT'
-
-                    });
-
+                const fd = sections.items[i].pageSetup.footerDistance;
+                if (fd !== undefined && Math.abs(fd - RULES.PAGE_NUMBER_FOOTER_PT) > RULES.MARGIN_TOLERANCE) {
+                    errs.push({ type: 'warning', title: `Bölüm ${i + 1}: Sayfa No Konumu`, description: `Alt kenardan 1.25 cm yukarıda olmalı. Mevcut: ${(fd / 28.35).toFixed(2)} cm`, location: `Bölüm ${i + 1}`, severity: 'FORMAT' });
                 }
-
-
-
-                // Check footer content for page number
-
-                const footer = section.getFooter("Primary");
-
+                const footer = sections.items[i].getFooter("Primary");
                 footer.load('text');
-
                 await context.sync();
-
-
-
-                // Footer should contain page number (numeric content)
-
                 if (footer.text && footer.text.trim().length === 0) {
-
-                    errors.push({
-
-                        type: 'warning',
-
-                        title: `Bölüm ${i + 1}: Sayfa Numarası Eksik`,
-
-                        description: 'Alt bilgide sayfa numarası bulunamadı.',
-
-                        location: `Bölüm ${i + 1}`,
-
-                        severity: 'FORMAT'
-
-                    });
-
+                    errs.push({ type: 'warning', title: `Bölüm ${i + 1}: Sayfa No Eksik`, description: 'Alt bilgide sayfa numarası bulunamadı.', location: `Bölüm ${i + 1}`, severity: 'FORMAT' });
                 }
-
-            } catch (sectionError) {
-
-                logStep('PAGE_NUM', `Section ${i + 1} page number check failed: ${sectionError.message}`);
-
-            }
-
+            } catch (e) { logStep('PAGE_NUM', `Section ${i + 1} error: ${e.message}`); }
         }
-
-
-
-        logStep('PAGE_NUM', `Validated page numbers, found ${errors.length} errors`);
-
-    } catch (error) {
-
-        logStep('PAGE_NUM', `Page number validation error: ${error.message}`);
-
-    }
-
-
-
-    return errors;
-
+    } catch (e) { logStep('PAGE_NUM', `Error: ${e.message}`); }
+    return errs;
 }
 
-
-
-// ============================================
-
-// ABSTRACT VALIDATION (Özet Sayfası)
-
-// ============================================
-
-
-
-function validateAbstract(paraData, abstractParagraphs) {
-
-    const errors = [];
-
-
-
-    // Count total words in abstract
-
-    let totalWords = 0;
-
-    let abstractText = '';
-
-
-
-    for (const para of abstractParagraphs) {
-
-        const text = (para.text || '').trim();
-
-        if (text.length > 0 && !text.match(/^(ÖZET|ABSTRACT|Anahtar Kelimeler|Keywords)/i)) {
-
-            const words = text.split(/\s+/).filter(w => w.length > 0);
-
-            totalWords += words.length;
-
-            abstractText += text + ' ';
-
-        }
-
-    }
-
-
-
-    // Word count check: 200-250 words
-
-    if (totalWords < EBYÜ_RULES.ABSTRACT_MIN_WORDS) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Özet: Kelime Sayısı Az',
-
-            description: `Özet en az ${EBYÜ_RULES.ABSTRACT_MIN_WORDS} kelime olmalı. Mevcut: ${totalWords} kelime`,
-
-            severity: 'FORMAT'
-
-        });
-
-    } else if (totalWords > EBYÜ_RULES.ABSTRACT_MAX_WORDS) {
-
-        errors.push({
-
-            type: 'warning',
-
-            title: 'Özet: Kelime Sayısı Fazla',
-
-            description: `Özet en fazla ${EBYÜ_RULES.ABSTRACT_MAX_WORDS} kelime olmalı. Mevcut: ${totalWords} kelime`,
-
-            severity: 'FORMAT'
-
-        });
-
-    }
-
-
-
-    return errors;
-
-}
-
-
-
-// ============================================
-
-// ADD ERROR COMMENT (Hata Yorumu Ekleme)
-
-// ============================================
-
-
-
-async function addErrorComment(context, paragraph, errorMessage) {
-
+async function validateSectionMargins(context, sections) {
+    const errs = [];
     try {
-
-        const range = paragraph.getRange();
-
-        range.insertComment(errorMessage);
-
-        logStep('COMMENT', `Added comment: ${errorMessage.substring(0, 50)}...`);
-
-    } catch (error) {
-
-        // Comments may not be supported in all environments
-
-        logStep('COMMENT', `Could not add comment: ${error.message}`);
-
+        for (let i = 0; i < sections.items.length; i++) {
+            try {
+                const ps = sections.items[i].getPageSetup();
+                ps.load('topMargin, bottomMargin, leftMargin, rightMargin');
+                const body = sections.items[i].body;
+                body.paragraphs.load('items');
+                await context.sync();
+                let firstText = '';
+                if (body.paragraphs.items && body.paragraphs.items.length > 0) {
+                    body.paragraphs.items[0].load('text');
+                    await context.sync();
+                    firstText = (body.paragraphs.items[0].text || '').trim();
+                }
+                const isChapter = matchAny(firstText, PAT.CHAPTER) || matchAny(firstText, PAT.SPECIAL_HEADING);
+                const expectedTop = isChapter ? RULES.MARGIN_TOP_SPECIAL_POINTS : RULES.MARGIN_POINTS;
+                const tol = RULES.MARGIN_TOLERANCE;
+                if (ps.topMargin !== undefined && Math.abs(ps.topMargin - expectedTop) > tol) {
+                    errs.push({ type: 'error', title: `Bölüm ${i + 1}: Üst Kenar`, description: `${isChapter ? 7 : 3} cm olmalı. Mevcut: ${(ps.topMargin / 28.35).toFixed(2)} cm`, location: `Bölüm ${i + 1}`, severity: 'CRITICAL' });
+                }
+                if (ps.bottomMargin !== undefined && Math.abs(ps.bottomMargin - RULES.MARGIN_POINTS) > tol) {
+                    errs.push({ type: 'error', title: `Bölüm ${i + 1}: Alt Kenar`, description: `3 cm olmalı. Mevcut: ${(ps.bottomMargin / 28.35).toFixed(2)} cm`, location: `Bölüm ${i + 1}`, severity: 'CRITICAL' });
+                }
+                if (ps.leftMargin !== undefined && Math.abs(ps.leftMargin - RULES.MARGIN_POINTS) > tol) {
+                    errs.push({ type: 'error', title: `Bölüm ${i + 1}: Sol Kenar`, description: `3 cm olmalı. Mevcut: ${(ps.leftMargin / 28.35).toFixed(2)} cm`, location: `Bölüm ${i + 1}`, severity: 'CRITICAL' });
+                }
+                if (ps.rightMargin !== undefined && Math.abs(ps.rightMargin - RULES.MARGIN_POINTS) > tol) {
+                    errs.push({ type: 'error', title: `Bölüm ${i + 1}: Sağ Kenar`, description: `3 cm olmalı. Mevcut: ${(ps.rightMargin / 28.35).toFixed(2)} cm`, location: `Bölüm ${i + 1}`, severity: 'CRITICAL' });
+                }
+            } catch (e) { logStep('MARGIN', `Section ${i + 1}: ${e.message}`); }
+        }
+    } catch (e) {
+        logStep('MARGIN', `Error: ${e.message}`);
+        addResult('warning', 'Kenar Boşlukları (Manuel Kontrol)', 'Otomatik kontrol başarısız. Lütfen manuel kontrol edin.');
     }
-
+    return errs;
 }
 
-
-
 // ============================================
-
-// MAIN SCAN FUNCTION (Batch Loading Optimized)
-
+// STRUCTURE VALIDATION - Required segments check
 // ============================================
+function validateStructure(segments) {
+    const errs = [];
+    const required = [
+        { type: SEG.OUTER_COVER, name: 'Dış Kapak' },
+        { type: SEG.INNER_COVER, name: 'İç Kapak' },
+        { type: SEG.ETHICS, name: 'Bilimsel Etiğe Uygunluk' },
+        { type: SEG.ORIGINALITY, name: 'Tez Özgünlük Sayfası' },
+        { type: SEG.GUIDE_COMPLIANCE, name: 'Kılavuza Uygunluk' },
+        { type: SEG.APPROVAL, name: 'Kabul ve Onay Tutanağı' },
+        { type: SEG.ABSTRACT_TR, name: 'Özet (Türkçe)' },
+        { type: SEG.ABSTRACT_EN, name: 'Abstract (İngilizce)' },
+        { type: SEG.TOC, name: 'İçindekiler' },
+        { type: SEG.BIBLIOGRAPHY, name: 'Kaynakça' }
+    ];
 
+    for (const req of required) {
+        if (!segments.find(s => s.type === req.type)) {
+            errs.push({ type: 'error', title: `Eksik Bölüm: ${req.name}`, description: `Tezde "${req.name}" bölümü bulunamadı.`, severity: 'CRITICAL' });
+        }
+    }
 
+    // Check segment order
+    const order = [SEG.OUTER_COVER, SEG.INNER_COVER, SEG.ETHICS, SEG.ORIGINALITY, SEG.GUIDE_COMPLIANCE, SEG.APPROVAL, SEG.ABSTRACT_TR, SEG.ABSTRACT_EN, SEG.TOC];
+    let lastIdx = -1;
+    for (const expectedType of order) {
+        const seg = segments.find(s => s.type === expectedType);
+        if (seg) {
+            if (seg.startIdx < lastIdx) {
+                errs.push({ type: 'warning', title: `Sıralama: ${seg.title}`, description: `"${seg.title}" beklenen sırada değil.`, severity: 'FORMAT' });
+            }
+            lastIdx = seg.startIdx;
+        }
+    }
 
-async function scanDocument() {
+    return errs;
+}
+// ============================================
+// UI FUNCTIONS
+// ============================================
+function initializeUI() {
+    const btn = document.getElementById('scanBtn');
+    if (btn) btn.onclick = scanDocument;
+    logStep('UI', 'v5.0 initialized');
+}
 
-    if (isScanning) return;
+function setButtonState(enabled) {
+    const btn = document.getElementById('scanBtn');
+    if (btn) {
+        btn.disabled = !enabled;
+        const span = btn.querySelector('span');
+        if (span) span.textContent = enabled ? 'DÖKÜMAN TARA' : 'ARANIYOR...';
+    }
+}
 
-    isScanning = true;
+function updateProgress(pct, msg) {
+    const c = document.getElementById('progressSection');
+    const b = document.getElementById('progressFill');
+    const t = document.getElementById('progressText');
+    if (c) c.classList.remove('hidden');
+    if (b) b.style.width = `${pct}%`;
+    if (t) t.textContent = msg;
+}
 
+function hideProgress() {
+    const c = document.getElementById('progressSection');
+    if (c) c.classList.add('hidden');
+}
 
+function displayResults() {
+    const container = document.getElementById('resultsList');
+    const summary = document.getElementById('summarySection');
+    const errEl = document.getElementById('errorCount');
+    const warnEl = document.getElementById('warningCount');
+    const succEl = document.getElementById('successCount');
+    const filterTabs = document.getElementById('filterTabs');
 
-    const startTime = performance.now();
+    if (!container) return;
 
+    if (validationResults.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>✅ Hiçbir hata bulunamadı.</p></div>';
+        if (summary) summary.classList.add('hidden');
+        return;
+    }
+
+    if (summary) summary.classList.remove('hidden');
+    if (filterTabs) filterTabs.classList.remove('hidden');
+
+    const errors = validationResults.filter(r => r.type === 'error');
+    const warnings = validationResults.filter(r => r.type === 'warning');
+    const successes = validationResults.filter(r => r.type === 'success');
+
+    if (errEl) errEl.textContent = errors.length;
+    if (warnEl) warnEl.textContent = warnings.length;
+    if (succEl) succEl.textContent = successes.length;
+
+    let html = '';
+    for (const r of errors) html += createResultItem(r, 'error');
+    for (const r of warnings) html += createResultItem(r, 'warning');
+    for (const r of successes) html += createResultItem(r, 'success');
+    container.innerHTML = html;
+
+    // Setup filter tabs
+    if (filterTabs) {
+        filterTabs.querySelectorAll('.filter-tab').forEach(tab => {
+            tab.onclick = function () {
+                filterTabs.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                const filter = this.dataset.filter;
+                container.querySelectorAll('.result-item').forEach(item => {
+                    if (filter === 'all') { item.style.display = ''; return; }
+                    item.style.display = item.classList.contains(filter) ? '' : 'none';
+                });
+            };
+        });
+    }
+}
+
+function createResultItem(result, type) {
+    const paraMatch = result.location ? result.location.match(/Paragraf\s*(\d+)/i) : null;
+    const paraIdx = paraMatch ? parseInt(paraMatch[1]) - 1 : null;
+    const showBtn = paraIdx !== null ? `<button class="show-error-btn" onclick="goToError(${paraIdx})">GÖSTER</button>` : '';
+    const segLabel = result.segment ? `<span class="segment-label">${result.segment}</span>` : '';
+
+    return `<div class="result-item ${type}">
+<div class="result-header">${segLabel}<span class="result-title">${result.title}</span>${showBtn}</div>
+<div class="result-description">${result.description}</div>
+<div class="result-location">${result.location || ''}</div>
+</div>`;
+}
+
+async function goToError(pidx) {
+    try {
+        await Word.run(async (ctx) => {
+            const paras = ctx.document.body.paragraphs;
+            paras.load('items');
+            await ctx.sync();
+            if (pidx >= 0 && pidx < paras.items.length) {
+                paras.items[pidx].select();
+                await ctx.sync();
+            }
+        });
+    } catch (e) { console.error('Nav error:', e); }
+}
+
+async function clearHighlightsAndResults() {
     clearResults();
+    try {
+        await Word.run(async (ctx) => {
+            ctx.document.body.font.highlightColor = null;
+            await ctx.sync();
+        });
+        displayResults();
+    } catch (e) { console.error('Clear error:', e); }
+}
 
+// ============================================
+// MAIN SCAN FUNCTION
+// ============================================
+async function scanDocument() {
+    if (isScanning) return;
+    isScanning = true;
+    const t0 = performance.now();
+    clearResults();
     setButtonState(false);
-
     updateProgress(0, 'Tarama başlatılıyor...');
 
-    logStep('START', 'Document scan initiated');
-
-
-
     try {
-
         await Word.run(async (context) => {
-
-            // Step 1: Clear previous highlights
-
+            // Step 1: Clear highlights
             updateProgress(5, 'Önceki işaretler temizleniyor...');
-
             context.document.body.font.highlightColor = null;
-
             await context.sync();
 
-
-
-            // Step 2: Load document structure
-
+            // Step 2: Load everything
             updateProgress(10, 'Belge yapısı yükleniyor...');
-
-
-
             const sections = context.document.sections;
-
             sections.load('items');
-
-
-
             const paragraphs = context.document.body.paragraphs;
-
-
-
-            // BATCH LOAD: Load all paragraph properties at once
-
-            // FIX: Use direct paragraph properties instead of paragraphFormat/* for Mac Word compatibility
-
-            // Word.Paragraph has leftIndent, lineSpacing, spaceBefore, spaceAfter, firstLineIndent, alignment directly
-
             paragraphs.load([
-
-                'items/text',
-
-                'items/style',
-
-                'items/outlineLevel',
-
-                'items/tableNestingLevel',
-
-                'items/font/name',
-
-                'items/font/size',
-
-                'items/font/bold',
-
-                'items/font/italic',
-
-                'items/alignment',
-
-                'items/firstLineIndent',
-
-                'items/leftIndent',
-
-                'items/rightIndent',
-
-                'items/lineSpacing',
-
-                'items/spaceBefore',
-
-                'items/spaceAfter',
-
-                'items/isListItem',
-
-                'items/listItemOrNullObject/listString',
-
-                'items/listItemOrNullObject/level'
-
+                'items/text', 'items/style', 'items/outlineLevel', 'items/tableNestingLevel',
+                'items/font/name', 'items/font/size', 'items/font/bold', 'items/font/italic',
+                'items/alignment', 'items/firstLineIndent', 'items/leftIndent', 'items/rightIndent',
+                'items/lineSpacing', 'items/spaceBefore', 'items/spaceAfter',
+                'items/isListItem', 'items/listItemOrNullObject/listString', 'items/listItemOrNullObject/level'
             ].join(','));
-
-
-
             await context.sync();
+            logStep('LOAD', `${paragraphs.items.length} paragraf, ${sections.items.length} bölüm yüklendi`);
 
-            logStep('LOAD', `Loaded ${paragraphs.items.length} paragraphs, ${sections.items.length} sections`);
-
-
-
-            // Step 3: Validate section margins (7cm rule)
-
-            updateProgress(20, 'Kenar boşlukları kontrol ediliyor...');
-
-            const marginErrors = await validateSectionMargins(context, sections);
-
-            for (const err of marginErrors) {
-
-                addResult(err.type, err.title, err.description, err.location, null, err.severity);
-
-            }
-
-
-
-            // Step 4: Prepare paragraph data objects (no sync needed)
-
-            updateProgress(30, 'Paragraf verileri hazırlanıyor...');
-
-            const paragraphDataList = [];
-
-
-
+            // Step 3: Build paragraph data
+            updateProgress(20, 'Paragraf verileri hazırlanıyor...');
+            const pdList = [];
             for (let i = 0; i < paragraphs.items.length; i++) {
-
                 const p = paragraphs.items[i];
-
-
-
-                // Defensive null checks
-
-                const pFont = p.font || {};
-
-
-
-                // Extract listItem properties for heading numbering validation
-
-                const listItem = p.listItemOrNullObject;
-
-                let listString = '';
-
-                let listLevel = null;
-
-
-
-                // Check if listItem was loaded and is not a null object
-
-                if (listItem && !listItem.isNullObject) {
-
-                    listString = listItem.listString || '';
-
-                    listLevel = listItem.level;
-
-                }
-
-
-
-                // FIX: Use direct paragraph properties instead of paragraphFormat for Mac Word
-
-                paragraphDataList.push({
-
-                    index: i,
-
-                    text: p.text || '',
-
-                    style: p.style || '',
-
-                    outlineLevel: p.outlineLevel,
-
+                const f = p.font || {};
+                const li = p.listItemOrNullObject;
+                let ls = '', ll = null;
+                if (li && !li.isNullObject) { ls = li.listString || ''; ll = li.level; }
+                pdList.push({
+                    index: i, text: p.text || '', style: p.style || '', outlineLevel: p.outlineLevel,
                     tableNestingLevel: p.tableNestingLevel || 0,
-
-                    font: {
-
-                        name: pFont.name,
-
-                        size: pFont.size,
-
-                        bold: pFont.bold,
-
-                        italic: pFont.italic
-
-                    },
-
-                    alignment: p.alignment,
-
-                    firstLineIndent: p.firstLineIndent,
-
-                    leftIndent: p.leftIndent,
-
-                    rightIndent: p.rightIndent,
-
-                    lineSpacing: p.lineSpacing,
-
-                    spaceBefore: p.spaceBefore,
-
-                    spaceAfter: p.spaceAfter,
-
-                    // List item properties for heading numbering
-
-                    isListItem: p.isListItem || false,
-
-                    listString: listString,
-
-                    listLevel: listLevel,
-
-                    paragraph: p // Keep reference for highlighting
-
+                    font: { name: f.name, size: f.size, bold: f.bold, italic: f.italic },
+                    alignment: p.alignment, firstLineIndent: p.firstLineIndent,
+                    leftIndent: p.leftIndent, rightIndent: p.rightIndent,
+                    lineSpacing: p.lineSpacing, spaceBefore: p.spaceBefore, spaceAfter: p.spaceAfter,
+                    isListItem: p.isListItem || false, listString: ls, listLevel: ll, paragraph: p
                 });
-
             }
 
+            // Step 4: Detect segments
+            updateProgress(30, 'Tez yapısı analiz ediliyor...');
+            const segments = detectSegments(pdList);
+            logStep('SEGMENTS', `${segments.length} segment tespit edildi`, segments.map(s => `${s.title}[${s.startIdx}-${s.endIdx}]`));
 
+            // Step 5: Validate structure
+            const structErrors = validateStructure(segments);
+            for (const e of structErrors) addResult(e.type, e.title, e.description, 'Yapı Kontrolü', null, e.severity, 'Yapı');
 
-            // Step 5: Zone-based validation
+            // Step 6: Validate margins
+            updateProgress(35, 'Kenar boşlukları kontrol ediliyor...');
+            const marginErrs = await validateSectionMargins(context, sections);
+            for (const e of marginErrs) addResult(e.type, e.title, e.description, e.location, null, e.severity, 'Kenar Boşlukları');
 
-            updateProgress(40, 'Paragraflar analiz ediliyor...');
-
-
-
-            let currentZone = ZONES.COVER;
-
-            let isInBiblio = false;
-
-            let isInTOC = false; // Track if we're inside İÇİNDEKİLER section
-
+            // Step 7: Paragraph-by-paragraph validation
+            updateProgress(40, 'Paragraflar doğrulanıyor...');
             let ghostCount = 0;
 
-            let errorCount = 0;
-
-            let warningCount = 0;
-
-
-
-            for (let i = 0; i < paragraphDataList.length; i++) {
-
-                const paraData = paragraphDataList[i];
-
-                const text = paraData.text.trim();
-
-
-
-                // Update progress periodically
-
-                if (i % 50 === 0) {
-
-                    const progressPercent = 40 + Math.floor((i / paragraphDataList.length) * 50);
-
-                    updateProgress(progressPercent, `Paragraf ${i + 1} / ${paragraphDataList.length}`);
-
-                }
-
-
-
-                // Zone switching - KAPAK -> ÖN KISIM (Roma) -> ANA METİN (Normal) -> KAYNAKÇA
-
-                // Cover is only the first 15 paragraphs OR until ÖZET/front matter
-
-                const textUpper = text.toUpperCase();
-
-
-
-                // Track İÇİNDEKİLER section (Table of Contents)
-
-                if (textUpper === 'İÇİNDEKİLER' || textUpper.startsWith('İÇİNDEKİLER')) {
-
-                    isInTOC = true;
-
-                    currentZone = ZONES.FRONT_MATTER;
-
-                    logStep('ZONE', `Entered TOC at paragraph ${i + 1}`);
-
-                }
-
-
-
-                // Exit TOC when we hit next major section
-
-                if (isInTOC && (textUpper === 'ÖZET' || textUpper === 'ÖNSÖZ' || textUpper === 'ABSTRACT' ||
-
-                    textUpper === 'TEŞEKKÜR' || /^1\.\s/.test(text) || textUpper === 'GİRİŞ')) {
-
-                    isInTOC = false;
-
-                    logStep('ZONE', `Exited TOC at paragraph ${i + 1}: "${text.substring(0, 30)}..."`);
-
-                }
-
-
-
-                // Skip validation for paragraphs inside TOC
-
-                if (isInTOC && textUpper !== 'İÇİNDEKİLER') {
-
-                    continue; // Skip this paragraph entirely
-
-                }
-
-
-
-                // Cover ends at ÖZET, İÇİNDEKİLER, ÖNSÖZ, or after 15 paragraphs
-
-                if (currentZone === ZONES.COVER) {
-
-                    if (textUpper === 'ÖZET' || textUpper.startsWith('ÖZET') ||
-
-                        textUpper === 'ÖNSÖZ' || textUpper.startsWith('ÖNSÖZ') ||
-
-                        matchesAnyPattern(text, PATTERNS.FRONT_MATTER_IDENTIFIERS) ||
-
-                        i >= 15) {
-
-                        currentZone = ZONES.FRONT_MATTER;
-
-                        logStep('ZONE', `Switched to FRONT_MATTER at paragraph ${i + 1}: "${text.substring(0, 30)}..."`);
-
-                    }
-
-                }
-
-
-
-                // Body starts with GİRİŞ - Normal rakamlar başlar
-
-                if (matchesAnyPattern(text, PATTERNS.BODY_START)) {
-
-                    currentZone = ZONES.BODY;
-
-                    logStep('ZONE', `Switched to BODY at paragraph ${i + 1}: "${text.substring(0, 30)}..."`);
-
-                }
-
-
-
-                // Back matter starts with KAYNAKÇA
-
-                if (matchesAnyPattern(text, PATTERNS.BACK_MATTER_START)) {
-
-                    currentZone = ZONES.BACK_MATTER;
-
-                    isInBiblio = true;
-
-                    logStep('ZONE', `Switched to BACK_MATTER at paragraph ${i + 1}: "${text.substring(0, 30)}..."`);
-
-                }
-
-
-
-                // Detect paragraph type
-
-                const paraType = detectParagraphType(paraData, currentZone, isInBiblio);
-
-
-
-                // Validate based on type
-
+            for (let i = 0; i < pdList.length; i++) {
+                if (i % 50 === 0) updateProgress(40 + Math.floor((i / pdList.length) * 40), `Paragraf ${i + 1} / ${pdList.length}`);
+
+                const pd = pdList[i];
+                const seg = getSegmentForParagraph(segments, i);
+                const ptype = detectParaType(pd, seg);
                 let errors = [];
+                const segTitle = seg ? seg.title : '';
 
-
-
-                switch (paraType) {
-
-                    case PARA_TYPES.GHOST_HEADING:
-
-                        errors = validateGhostHeading(paraData, i);
-
-                        // Highlight ghost heading
-
-                        paraData.paragraph.font.highlightColor = HIGHLIGHT_COLORS.CRITICAL;
-
+                switch (ptype) {
+                    case PTYPE.GHOST_HEADING:
+                        errors = validateGhostHeading(pd, i);
+                        pd.paragraph.font.highlightColor = HIGHLIGHT.CRITICAL;
                         ghostCount++;
-
                         break;
-
-
-
-                    case PARA_TYPES.MAIN_HEADING:
-
-                        errors = validateMainHeading(paraData, i);
-
+                    case PTYPE.COVER_TEXT:
+                        if (seg) errors = validateCover(pd, i, seg.type);
                         break;
-
-
-
-                    case PARA_TYPES.SUB_HEADING:
-
-                        errors = validateSubHeading(paraData, i);
-
+                    case PTYPE.FRONT_MATTER:
+                        if (seg) errors = validateFrontMatter(pd, i, seg);
                         break;
-
-
-
-                    case PARA_TYPES.BODY_TEXT:
-
-                        errors = validateBodyText(paraData, i);
-
+                    case PTYPE.CHAPTER_HEADING:
+                        errors = validateChapterHeading(pd, i);
                         break;
-
-
-
-                    case PARA_TYPES.BLOCK_QUOTE:
-
-                        errors = validateBlockQuote(paraData, i);
-
+                    case PTYPE.SUB_HEADING:
+                        errors = validateSubHeading(pd, i);
                         break;
-
-
-
-                    case PARA_TYPES.BIBLIOGRAPHY:
-
-                        errors = validateBibliography(paraData, i);
-
+                    case PTYPE.BODY_TEXT:
+                        if (!seg || ![SEG.OUTER_COVER, SEG.INNER_COVER, SEG.ETHICS, SEG.ORIGINALITY, SEG.GUIDE_COMPLIANCE, SEG.APPROVAL, SEG.TOC].includes(seg.type)) {
+                            errors = validateBodyText(pd, i);
+                        }
                         break;
-
-
-
-                    case PARA_TYPES.CAPTION_TITLE:
-
-                        errors = validateCaption(paraData, i);
-
+                    case PTYPE.BLOCK_QUOTE:
+                        errors = validateBlockQuote(pd, i);
                         break;
-
-
-
-                    case PARA_TYPES.COVER_TEXT:
-
-                        errors = validateCoverPage(paraData, i);
-
+                    case PTYPE.BIBLIOGRAPHY:
+                        errors = validateBibliography(pd, i);
                         break;
-
+                    case PTYPE.CAPTION:
+                        errors = validateCaption(pd, i);
+                        break;
+                    case PTYPE.TOC_ENTRY:
+                    case PTYPE.EMPTY:
+                    case PTYPE.UNKNOWN:
+                        break;
                 }
 
-
-
-                // Add errors and apply highlights + comments
-
-                let hasCriticalError = false;
-
-
-
+                // Add errors and highlight
+                let hasCritical = false;
                 for (const err of errors) {
-
-                    addResult(err.type, err.title, err.description, `Paragraf ${i + 1}`, err.paraIndex, err.severity);
-
-
-
-                    // Track if we have a critical error
-
-                    if (err.severity === 'CRITICAL' || err.type === 'error') {
-
-                        hasCriticalError = true;
-
-                    }
-
-
-
-                    if (err.type === 'error') {
-
-                        errorCount++;
-
-                    } else if (err.type === 'warning') {
-
-                        warningCount++;
-
-                    }
-
+                    addResult(err.type, err.title, err.description, `Paragraf ${i + 1}`, err.paraIndex, err.severity, segTitle);
+                    if (err.severity === 'CRITICAL' || err.type === 'error') hasCritical = true;
                 }
-
-
-
-                // Apply highlight ONCE after all errors checked (avoid reading highlightColor)
-
                 if (errors.length > 0) {
-
-                    const highlightColor = hasCriticalError
-
-                        ? HIGHLIGHT_COLORS.CRITICAL
-
-                        : HIGHLIGHT_COLORS.FORMAT;
-
-                    paraData.paragraph.font.highlightColor = highlightColor;
-
+                    pd.paragraph.font.highlightColor = hasCritical ? HIGHLIGHT.CRITICAL : HIGHLIGHT.FORMAT;
                 }
-
             }
 
+            // Step 8: Tables
+            updateProgress(82, 'Tablolar kontrol ediliyor...');
+            const tblErrs = await validateTables(context);
+            for (const e of tblErrs) addResult(e.type, e.title, e.description, `Tablo`, null, e.severity, 'Tablolar');
 
+            // Step 9: Images
+            updateProgress(86, 'Resimler kontrol ediliyor...');
+            const imgErrs = await validateImages(context);
+            for (const e of imgErrs) addResult(e.type, e.title, e.description, `Resim`, null, e.severity, 'Resimler');
 
-            // Step 6: Validate Tables (Tablo Hizalama)
+            // Step 10: Page numbers
+            updateProgress(89, 'Sayfa numaraları kontrol ediliyor...');
+            const pnErrs = await validatePageNumbers(context, sections);
+            for (const e of pnErrs) addResult(e.type, e.title, e.description, e.location, null, e.severity, 'Sayfa No');
 
-            updateProgress(85, 'Tablolar kontrol ediliyor...');
-
-            const tableErrors = await validateTables(context);
-
-            for (const err of tableErrors) {
-
-                addResult(err.type, err.title, err.description, `Tablo ${err.tableIndex + 1}`, null, err.severity);
-
-                if (err.type === 'error') errorCount++;
-
-                else warningCount++;
-
+            // Step 11: Abstract validation
+            updateProgress(92, 'Özet/Abstract kontrol ediliyor...');
+            const ozetSeg = segments.find(s => s.type === SEG.ABSTRACT_TR);
+            if (ozetSeg) {
+                const ozetErrs = validateAbstractSection(pdList, ozetSeg.startIdx, false);
+                for (const e of ozetErrs) addResult(e.type, e.title, e.description, 'Özet Sayfası', null, e.severity, 'Özet');
+            }
+            const absSeg = segments.find(s => s.type === SEG.ABSTRACT_EN);
+            if (absSeg) {
+                const absErrs = validateAbstractSection(pdList, absSeg.startIdx, true);
+                for (const e of absErrs) addResult(e.type, e.title, e.description, 'Abstract Sayfası', null, e.severity, 'Abstract');
             }
 
-
-
-            // Step 7: Validate Images (Resim Hizalama)
-
-            updateProgress(88, 'Resimler kontrol ediliyor...');
-
-            const imageErrors = await validateImages(context);
-
-            for (const err of imageErrors) {
-
-                addResult(err.type, err.title, err.description, `Resim ${err.pictureIndex + 1}`, null, err.severity);
-
-                if (err.type === 'error') errorCount++;
-
-                else warningCount++;
-
-            }
-
-
-
-            // Step 8: Validate Page Numbers (Sayfa No Konumu)
-
-            updateProgress(91, 'Sayfa numaraları kontrol ediliyor...');
-
-            const pageNumErrors = await validatePageNumbers(context, sections);
-
-            for (const err of pageNumErrors) {
-
-                addResult(err.type, err.title, err.description, err.location, null, err.severity);
-
-                if (err.type === 'error') errorCount++;
-
-                else warningCount++;
-
-            }
-
-
-
-            // Step 8.5: Validate Özet and Abstract (Özet Sayfaları)
-
-            updateProgress(93, 'Özet/Abstract kontrol ediliyor...');
-
-
-
-            // Find ÖZET section paragraphs
-
-            let ozetStartIndex = -1;
-
-            let abstractStartIndex = -1;
-
-
-
-            for (let i = 0; i < paragraphDataList.length; i++) {
-
-                const text = paragraphDataList[i].text.trim();
-
-                const textUpper = text.toUpperCase();
-
-
-
-                // Skip TOC entries (they usually end with page numbers like "ÖZET...........5")
-
-                if (text.match(/\.{2,}\s*\d+\s*$/) || text.match(/\t\d+\s*$/)) {
-
-                    continue;
-
-                }
-
-
-
-                // Find ÖZET - check that next paragraph looks like content
-
-                if ((textUpper === 'ÖZET' || textUpper.startsWith('ÖZET')) && ozetStartIndex < 0) {
-
-                    if (i + 1 < paragraphDataList.length) {
-
-                        const nextText = paragraphDataList[i + 1].text.trim();
-
-                        // Real content is longer and doesn't start with number or look like TOC
-
-                        if (nextText.length > 15 && !nextText.match(/^\d/) && !nextText.match(/\.{2,}/)) {
-
-                            ozetStartIndex = i;
-
-                        }
-
-                    }
-
-                }
-
-
-
-                // Find ABSTRACT - same logic
-
-                if ((textUpper === 'ABSTRACT' || textUpper.startsWith('ABSTRACT')) && abstractStartIndex < 0) {
-
-                    if (i + 1 < paragraphDataList.length) {
-
-                        const nextText = paragraphDataList[i + 1].text.trim();
-
-                        if (nextText.length > 15 && !nextText.match(/^\d/) && !nextText.match(/\.{2,}/)) {
-
-                            abstractStartIndex = i;
-
-                        }
-
-                    }
-
-                }
-
-            }
-
-
-
-            // Validate ÖZET (Turkish abstract) - words between ÖZET and Anahtar Kelimeler
-
-            if (ozetStartIndex >= 0) {
-
-                const ozetParagraphs = [];
-
-                for (let i = ozetStartIndex + 1; i < paragraphDataList.length && i < ozetStartIndex + 30; i++) {
-
-                    const text = paragraphDataList[i].text.trim();
-
-                    const textLower = text.toLowerCase();
-
-                    // Stop at "Anahtar Kelimeler:" (use includes for Turkish char safety)
-
-                    if (textLower.includes('anahtar') && textLower.includes('kelime')) {
-
-                        logStep('ÖZET', `Found Anahtar Kelimeler at paragraph ${i + 1}: "${text}"`);
-
-                        break;
-
-                    }
-
-                    // Also stop at ABSTRACT (in case Anahtar Kelimeler is missing)
-
-                    if (/^ABSTRACT$/i.test(text)) {
-
-                        logStep('ÖZET', `Found ABSTRACT at paragraph ${i + 1}, stopping ÖZET scan`);
-
-                        break;
-
-                    }
-
-                    // Skip empty or very short paragraphs, but include medium ones
-
-                    if (text.length > 5 && !/^anahtar/i.test(text)) {
-
-                        ozetParagraphs.push(paragraphDataList[i]);
-
-                    }
-
-                }
-
-
-
-                // Debug: Show how many paragraphs found
-
-                logStep('ÖZET', `Found ${ozetParagraphs.length} paragraphs in ÖZET section`);
-
-
-
-                // Calculate word count for DEBUG
-
-                let totalOzetWords = 0;
-
-                for (const p of ozetParagraphs) {
-
-                    totalOzetWords += (p.text || '').split(/\s+/).filter(w => w.length > 0).length;
-
-                }
-
-
-
-                // Show DEBUG in UI
-
-                addResult('warning', '📊 ÖZET DEBUG',
-
-                    `Paragraf index: ${ozetStartIndex + 1}, Bulunan paragraf: ${ozetParagraphs.length}, Kelime sayısı: ${totalOzetWords}`,
-
-                    'Debug', null, 'FORMAT');
-
-
-
-                const ozetErrors = validateAbstract(null, ozetParagraphs);
-
-                for (const err of ozetErrors) {
-
-                    err.title = err.title.replace('Özet:', 'ÖZET:');
-
-                    addResult(err.type, err.title, err.description, 'Özet Sayfası', null, err.severity);
-
-                    warningCount++;
-
-                }
-
-            } else {
-
-                addResult('warning', 'ÖZET DEBUG: Bulunamadı',
-
-                    'ÖZET başlığı bulunamadı veya sonrasında içerik algılanamadı. TOC\'deki ÖZET atlandı.',
-
-                    'Debug', null, 'FORMAT');
-
-            }
-
-
-
-            // Validate ABSTRACT (English abstract) - words between ABSTRACT and Keywords
-
-            if (abstractStartIndex >= 0) {
-
-                const abstractParagraphs = [];
-
-                for (let i = abstractStartIndex + 1; i < paragraphDataList.length && i < abstractStartIndex + 30; i++) {
-
-                    const text = paragraphDataList[i].text.trim();
-
-                    const textLower = text.toLowerCase();
-
-                    // Stop at "Keywords" or "Keywords:" (use includes for safety)
-
-                    if (textLower.includes('keywords') || textLower.includes('key words')) {
-
-                        logStep('ABSTRACT', `Found Keywords at paragraph ${i + 1}: "${text}"`);
-
-                        break;
-
-                    }
-
-                    // Skip empty or very short paragraphs, but include medium ones
-
-                    if (text.length > 5 && !/^key/i.test(text)) {
-
-                        abstractParagraphs.push(paragraphDataList[i]);
-
-                    }
-
-                }
-
-
-
-                // Debug: Show how many paragraphs found
-
-                logStep('ABSTRACT', `Found ${abstractParagraphs.length} paragraphs in ABSTRACT section`);
-
-
-
-                const abstractErrors = validateAbstract(null, abstractParagraphs);
-
-                for (const err of abstractErrors) {
-
-                    err.title = err.title.replace('Özet:', 'ABSTRACT:');
-
-                    addResult(err.type, err.title, err.description, 'Abstract Sayfası', null, err.severity);
-
-                    warningCount++;
-
-                }
-
-            }
-
-
-
-            // Step 9: Apply highlights
-
-            updateProgress(95, 'İşaretler uygulanıyor...');
-
+            // Step 12: Apply & summary
+            updateProgress(96, 'İşaretler uygulanıyor...');
             await context.sync();
 
-
-
-            // Step 10: Summary
-
-            updateProgress(98, 'Özet hazırlanıyor...');
-
-
-
             if (ghostCount > 0) {
-
-                addResult('error', `${ghostCount} Boş Başlık (Ghost Heading) Bulundu`,
-
-                    'Bu boş başlıklar İçindekiler tablosunda hatalı satırlara neden olur. Kırmızı ile işaretlendi.',
-
-                    'Belge Geneli', null, 'CRITICAL');
-
+                addResult('error', `${ghostCount} Boş Başlık (Ghost Heading)`, 'İçindekiler tablosunda hatalı satırlara neden olur.', 'Belge', null, 'CRITICAL', 'Yapı');
             }
 
+            const errs = validationResults.filter(r => r.type === 'error').length;
+            const warns = validationResults.filter(r => r.type === 'warning').length;
+            const succs = validationResults.filter(r => r.type === 'success').length;
 
-
-            // DEBUG section removed - spacing values confirmed working
-
-
-
-            const totalErrors = errorCount + marginErrors.filter(e => e.type === 'error').length;
-
-            const totalWarnings = warningCount + marginErrors.filter(e => e.type === 'warning').length +
-
-                tableErrors.length + imageErrors.length + pageNumErrors.length;
-
-
-
-            if (totalErrors === 0 && totalWarnings === 0) {
-
-                addResult('success', '✅ Tebrikler!',
-
-                    'Belge EBYÜ 2022 Tez Yazım Kılavuzu formatına uygun görünüyor.');
-
+            if (errs === 0 && warns === 0) {
+                addResult('success', '✅ Tebrikler!', 'Belge EBYÜ 2022 Tez Yazım Kılavuzu formatına uygun görünüyor.');
             } else {
-
-                addResult(totalErrors > 0 ? 'error' : 'warning', 'Tarama Özeti',
-
-                    `🔴 Kritik: ${totalErrors} | 🟡 Format: ${totalWarnings} hata bulundu. Hatalı yerler belgede işaretlendi ve yorum eklendi.`);
-
+                addResult(errs > 0 ? 'error' : 'warning', 'Tarama Özeti',
+                    `🔴 Kritik: ${errs} | 🟡 Format: ${warns} | ✅ Başarılı: ${succs}`);
             }
-
-
 
             updateProgress(100, 'Tarama tamamlandı!');
-
-
-
-            const endTime = performance.now();
-
-            logStep('COMPLETE', `Scan completed in ${((endTime - startTime) / 1000).toFixed(2)} seconds`);
-
+            logStep('DONE', `${((performance.now() - t0) / 1000).toFixed(2)} saniye`);
         });
-
-
-
     } catch (error) {
-
-        logStep('ERROR', `Scan failed: ${error.message}`);
-
+        logStep('ERROR', error.message);
         addResult('error', 'Tarama Hatası', `Hata: ${error.message}. Lütfen tekrar deneyin.`);
-
     } finally {
-
         isScanning = false;
-
         setButtonState(true);
-
         hideProgress();
-
         displayResults();
-
     }
-
 }
 
-
-
 // ============================================
-
-// OFFICE.JS INITIALIZATION
-
+// OFFICE.JS INIT
 // ============================================
-
-
-
 Office.onReady((info) => {
-
     if (info.host === Office.HostType.Word) {
-
-        console.log('EBYÜ Thesis Validator v4.0 (Enhanced with Tables/Images/PageNum): Office.js initialized');
-
+        console.log('EBYÜ Thesis Validator v5.0 (Segment-Based): Office.js initialized');
         initializeUI();
-
     } else {
-
         console.error('This add-in only works with Microsoft Word.');
-
     }
-
 });
